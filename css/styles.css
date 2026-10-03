@@ -387,8 +387,8 @@ svg.chart { display: block; width: 100%; height: auto; }
 /* ---------- Dark mode ---------- */
 @media (prefers-color-scheme: dark) {
   :root {
-    --cream: #241F1C; --cream-2: #312A26; --card: #2E2825; --ink: #F8EEE4;
-    --ink-soft: #CDBCAC; --line: #413832;
+    --cream: #241F1C; --cream-2: #342C27; --card: #302A26; --ink: #FBF3EB;
+    --ink-soft: #DACCBE; --line: #463C35;
     --shadow: 0 8px 24px rgba(0,0,0,.35); --shadow-sm: 0 4px 12px rgba(0,0,0,.3);
   }
   input, select, textarea { background: #262120; color: var(--ink); }

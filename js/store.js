@@ -41,6 +41,8 @@ const Store = {
     } catch (e) {
       alert("บันทึกข้อมูลไม่สำเร็จ — พื้นที่จัดเก็บอาจเต็ม");
     }
+    // ส่งขึ้นคลาวด์ถ้าเปิดซิงค์อยู่
+    if (typeof Sync !== "undefined" && Sync.ready && !Sync.applying) Sync.schedulePush();
   },
 
   /* ---- profile ---- */

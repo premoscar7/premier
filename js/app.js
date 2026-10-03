@@ -128,7 +128,7 @@ const TABS = [
 function go(route) { App.route = route; render(); window.scrollTo(0, 0); }
 
 function renderNav() {
-  const activeTab = ["shopping", "appt", "profile", "settings", "health", "summary", "diary"].includes(App.route) ? "more" : App.route;
+  const activeTab = ["shopping", "appt", "profile", "settings", "health", "summary", "diary", "sync"].includes(App.route) ? "more" : App.route;
   document.getElementById("nav").innerHTML = TABS.map(t =>
     `<button class="${t.id === activeTab ? "active" : ""}" onclick="go('${t.id}')">
        <span class="ne">${t.icon}</span><span>${t.label}</span>
@@ -150,19 +150,22 @@ function render() {
   else if (r === "health") html = viewHealth();
   else if (r === "summary") html = viewSummary();
   else if (r === "diary") html = viewDiary();
+  else if (r === "sync") html = viewSync();
   appEl().innerHTML = html;
   renderNav();
   document.getElementById("fab").style.display =
-    ["profile", "settings", "summary"].includes(r) ? "none" : "grid";
+    ["profile", "settings", "summary", "sync"].includes(r) ? "none" : "grid";
 }
 
 /* ==================================================================
    HEADER
    ================================================================== */
 function topbar(title) {
+  const syncOn = typeof Sync !== "undefined" && Sync.ready;
   return `<div class="topbar">
     <div class="logo"><span class="giraffe">🦒</span>Baby<span class="k">Kids</span></div>
     <div class="spacer"></div>
+    ${syncOn ? `<button class="icon-btn" onclick="go('sync')" title="ซิงค์เปิดอยู่" aria-label="ซิงค์">☁️</button>` : ""}
     <button class="icon-btn" onclick="go('settings')" aria-label="ตั้งค่า">⚙️</button>
   </div>`;
 }
@@ -645,6 +648,7 @@ function viewMore() {
   const todayTemps = Store.data.temps.filter(t => dayKey(t.time) === dayKey(new Date()));
   const maxTemp = todayTemps.length ? Math.max(...todayTemps.map(t => +t.value)) : null;
   const menu = [
+    ["sync", "🔄", "ซิงค์ข้อมูลพ่อแม่", (typeof Sync !== "undefined" && Sync.ready) ? `✅ เปิดอยู่ (รหัส ${Sync.code})` : "ให้ข้อมูลตรงกันทุกเครื่องแบบเรียลไทม์"],
     ["diary", "📸", "ไดอารี่ความทรงจำ", Store.data.memories.length ? `${Store.data.memories.length} ความทรงจำ` : "เก็บภาพ & โมเมนต์พิเศษ"],
     ["health", "🌡️", "สุขภาพ (ไข้ & ยา)", maxTemp ? `ไข้วันนี้สูงสุด ${maxTemp}°C` : "บันทึกอุณหภูมิ & ยา/วิตามิน"],
     ["summary", "📊", "สรุปรายสัปดาห์", "ดูแพตเทิร์นนม นอน ผ้าอ้อม 7 วัน"],
@@ -808,6 +812,10 @@ function saveProfile() {
 function viewSettings() {
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>⚙️ ตั้งค่า</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="card" style="cursor:pointer" onclick="go('sync')">
+      <div class="flex between"><h3>🔄 ซิงค์ข้อมูลพ่อแม่</h3><span class="time">›</span></div>
+      <p class="small muted" style="margin:4px 0 0">${(typeof Sync !== "undefined" && Sync.ready) ? "✅ เปิดอยู่ — ข้อมูลตรงกันทุกเครื่อง" : "ให้มือถือพ่อ-แม่เห็นข้อมูลเดียวกันแบบเรียลไทม์"}</p>
+    </div>
     <div class="card">
       <h3>💾 สำรอง & กู้คืนข้อมูล</h3>
       <p class="small muted">ข้อมูลเก็บในเครื่องนี้เท่านั้น แนะนำให้ส่งออกเก็บไว้เป็นระยะ หรือใช้ย้ายไปอีกเครื่อง</p>
@@ -857,6 +865,70 @@ function needProfile() {
     <p class="muted">ใส่ข้อมูลลูกก่อนเริ่มใช้งานส่วนนี้นะ</p>
     <button class="btn mt" onclick="go('profile')">ไปตั้งค่าข้อมูล</button>
   </div></div>`;
+}
+
+/* ==================================================================
+   SYNC (ซิงค์ข้อมูลพ่อ-แม่ ผ่านคลาวด์)
+   ================================================================== */
+function viewSync() {
+  const S = (typeof Sync !== "undefined") ? Sync : { cfg: () => ({ url: "" }), status: "off", ready: false, code: "" };
+  const url = S.cfg().url;
+  const code = S.code || localStorage.getItem("bk.familyCode") || "";
+  const on = S.ready;
+  const statusMap = {
+    off: "⚪ ยังไม่ซิงค์", connecting: "🟡 กำลังเชื่อมต่อ…",
+    on: "🟢 ซิงค์แล้ว (อัปเดตทุก ~3 วิ)", syncing: "🔵 กำลังอัปเดต…", error: "🔴 เชื่อมต่อมีปัญหา",
+  };
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>🔄 ซิงค์ข้อมูลพ่อแม่</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+
+    <div class="ai-card" style="background:linear-gradient(135deg,#2BB3AA,#4ECDC4)">
+      <h3>☁️ ข้อมูลตรงกันทุกเครื่อง</h3>
+      <p>ให้มือถือพ่อและแม่เห็นข้อมูลเดียวกัน — กดบันทึกที่เครื่องหนึ่ง อีกเครื่องเห็นภายในไม่กี่วินาที เก็บข้อมูลไว้ใน Google Sheet ของคุณเอง (ฟรี)</p>
+      <span class="tag">สถานะ: ${statusMap[S.status] || "—"}</span>
+    </div>
+
+    <div class="card">
+      <h3>1️⃣ ลิงก์ Google Sheet <span class="small muted">(ทำครั้งเดียวต่อเครื่อง)</span></h3>
+      <p class="small muted">วางลิงก์ Web App ที่ได้จาก Google Apps Script (ดูวิธีทำในคำแนะนำที่แชทส่งให้)</p>
+      <label class="field"><span>Web App URL</span><input type="text" id="sy-url" value="${esc(url)}" placeholder="https://script.google.com/macros/s/.../exec"></label>
+      <button class="btn ghost block" onclick="saveSheetUrl()">💾 บันทึกลิงก์</button>
+    </div>
+
+    <div class="card">
+      <h3>2️⃣ รหัสครอบครัว</h3>
+      <p class="small muted">ตั้งรหัสลับสักคำ แล้วใช้ <b>รหัสเดียวกัน</b> ทั้งมือถือพ่อและแม่ → ข้อมูลจะตรงกัน</p>
+      <label class="field"><span>รหัสครอบครัว</span>
+        <div class="flex gap">
+          <input type="text" id="sy-code" value="${esc(code)}" placeholder="เช่น premier-family-2026" style="flex:1">
+          <button class="btn ghost sm" type="button" onclick="randFamilyCode()" title="สุ่มรหัสเดายาก">🎲</button>
+        </div>
+      </label>
+      ${on
+      ? `<button class="btn danger block" onclick="disconnectSync()">⛔ หยุดซิงค์</button>`
+      : `<button class="btn teal block" onclick="connectSync()">🔗 เชื่อมต่อ & เริ่มซิงค์</button>`}
+    </div>
+
+    ${on ? `<div class="alert"><span class="e">✅</span><div>กำลังซิงค์ด้วยรหัส <b>${esc(code)}</b> — เปิดแอปในมืออีกเครื่อง ใส่ลิงก์+รหัสเดียวกัน ข้อมูลจะตรงกัน</div></div>` : ""}
+    <div class="card small muted">⚠️ ใครที่รู้ลิงก์ Sheet + รหัสครอบครัว จะเข้าถึงข้อมูลได้ จึงควรตั้งรหัสที่เดายากและบอกเฉพาะคนในบ้าน · ข้อมูลยังเก็บในเครื่องด้วย เน็ตหลุดก็ใช้งานต่อได้</div>
+  </div>`;
+}
+function saveSheetUrl() {
+  Sync.saveUrl($("#sy-url").value);
+  alert("บันทึกลิงก์แล้ว 👍");
+  render();
+}
+function connectSync() {
+  Sync.saveUrl($("#sy-url").value);
+  Sync.connect($("#sy-code").value);
+}
+function disconnectSync() {
+  if (confirm("หยุดซิงค์กับคลาวด์? (ข้อมูลในเครื่องนี้ยังอยู่ครบ)")) Sync.disconnect();
+}
+function randFamilyCode() {
+  const name = (Store.data.profile.name || "baby").replace(/\s+/g, "").toLowerCase().slice(0, 8) || "baby";
+  const rnd = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+  const el = $("#sy-code"); if (el) el.value = `${name}-${rnd}`;
 }
 
 /* ==================================================================
@@ -1340,3 +1412,4 @@ if ("serviceWorker" in navigator) {
 
 /* ---- start ---- */
 render();
+if (typeof Sync !== "undefined") { try { Sync.init(); } catch (e) { } }

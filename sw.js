@@ -1,11 +1,13 @@
 /* Baby Kids — service worker (offline cache) */
-const CACHE = "babykids-v6";
+const CACHE = "babykids-v8";
 const ASSETS = [
   "./",
   "index.html",
   "css/styles.css",
+  "js/config.js",
   "js/data.js",
   "js/store.js",
+  "js/sync.js",
   "js/app.js",
   "manifest.webmanifest",
   "icons/icon.svg",
