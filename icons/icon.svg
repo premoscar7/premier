@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB65C"/>
+      <stop offset="1" stop-color="#FF9F43"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- cream circle -->
+  <circle cx="256" cy="268" r="150" fill="#FFF7EC"/>
+  <!-- ossicones -->
+  <g>
+    <rect x="196" y="96" width="18" height="52" rx="9" fill="#C97A2B"/>
+    <circle cx="205" cy="92" r="16" fill="#6B4A2B"/>
+    <rect x="298" y="96" width="18" height="52" rx="9" fill="#C97A2B"/>
+    <circle cx="307" cy="92" r="16" fill="#6B4A2B"/>
+  </g>
+  <!-- ears -->
+  <ellipse cx="140" cy="214" rx="34" ry="22" fill="#FFC14D" transform="rotate(-24 140 214)"/>
+  <ellipse cx="372" cy="214" rx="34" ry="22" fill="#FFC14D" transform="rotate(24 372 214)"/>
+  <!-- face -->
+  <path d="M256 150c-74 0-120 50-120 120 0 78 54 128 120 128s120-50 120-128c0-70-46-120-120-120z" fill="#FFC14D"/>
+  <!-- muzzle -->
+  <ellipse cx="256" cy="330" rx="78" ry="62" fill="#FFF7EC"/>
+  <!-- spots -->
+  <circle cx="186" cy="238" r="16" fill="#E8922E"/>
+  <circle cx="330" cy="236" r="18" fill="#E8922E"/>
+  <circle cx="300" cy="196" r="12" fill="#E8922E"/>
+  <circle cx="210" cy="192" r="11" fill="#E8922E"/>
+  <!-- eyes -->
+  <circle cx="212" cy="258" r="20" fill="#5A3A1E"/>
+  <circle cx="300" cy="258" r="20" fill="#5A3A1E"/>
+  <circle cx="219" cy="251" r="7" fill="#fff"/>
+  <circle cx="307" cy="251" r="7" fill="#fff"/>
+  <!-- nostrils + smile -->
+  <ellipse cx="232" cy="326" rx="7" ry="9" fill="#C97A2B"/>
+  <ellipse cx="280" cy="326" rx="7" ry="9" fill="#C97A2B"/>
+  <path d="M222 352 q34 30 68 0" fill="none" stroke="#C97A2B" stroke-width="8" stroke-linecap="round"/>
+  <!-- cheeks -->
+  <circle cx="176" cy="312" r="14" fill="#FF8FB1" opacity="0.55"/>
+  <circle cx="336" cy="312" r="14" fill="#FF8FB1" opacity="0.55"/>
+</svg>
