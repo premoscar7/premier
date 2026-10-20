@@ -161,7 +161,7 @@ const TABS = [
 function go(route) { App.route = route; render(); window.scrollTo(0, 0); }
 
 function renderNav() {
-  const activeTab = ["shopping", "appt", "profile", "settings", "health", "teeth", "healthcard", "sync", "timeline", "sizes", "letters", "quotes", "children"].includes(App.route) ? "more" : App.route;
+  const activeTab = ["shopping", "appt", "profile", "settings", "health", "teeth", "healthcard", "sync", "timeline", "sizes", "letters", "quotes", "children", "vaccines"].includes(App.route) ? "more" : App.route;
   document.getElementById("nav").innerHTML = TABS.map(t =>
     `<button class="${t.id === activeTab ? "active" : ""}" onclick="go('${t.id}')">
        <span class="ne">${t.icon}</span><span>${t.label}</span>
@@ -189,6 +189,7 @@ function render() {
   else if (r === "letters") html = viewLetters();
   else if (r === "quotes") html = viewQuotes();
   else if (r === "children") html = viewChildren();
+  else if (r === "vaccines") html = viewVaccines();
   appEl().innerHTML = html;
   renderNav();
   document.getElementById("fab").style.display =
@@ -391,37 +392,31 @@ function upcomingAppt() {
 }
 function vShort(title) { return String(title || "").replace(/^วัคซีน:\s*/, ""); }
 
-/* ---- การ์ดวัคซีนบนแดชบอร์ด ---- */
+/* ---- วัคซีนที่แนะนำตามวัย (คำนวณจากอายุจริง) ---- */
+function nextRecommendedVaccine() {
+  const a = ageData(); if (!a) return null;
+  const m = a.months; // วัคซีนใช้อายุจริง
+  const v = VACCINE_SCHEDULE.find(x => x.atMonth >= m);
+  if (!v) return null;
+  const birth = new Date(Store.data.profile.birthDate);
+  const d = new Date(birth); d.setMonth(d.getMonth() + v.atMonth);
+  return { atMonth: v.atMonth, name: v.name.replace(/^.*?:\s*/, ""), label: v.atMonth === 0 ? "แรกเกิด" : `อายุ ${v.atMonth} เดือน`, date: dayKey(d) };
+}
+
+/* ---- การ์ดวัคซีนบนแดชบอร์ด (สมุดบันทึกที่ฉีดแล้ว) ---- */
 function vaccineCard() {
   if (!Store.data.profile.birthDate) return "";
-  const today = dayKey(new Date());
-  const vaccines = Store.data.appointments.filter(a => a.isVaccine);
+  const list = [...(Store.data.vaccines || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const last = list[0];
+  const rec = nextRecommendedVaccine();
 
-  if (vaccines.length === 0) {
-    return `<div class="section-title">💉 วัคซีน</div>
-      <div class="card center" style="cursor:pointer" onclick="genVaccines()">
-        <div style="font-size:30px">💉</div>
-        <div class="t" style="font-weight:700">สร้างตารางวัคซีนตามเกณฑ์</div>
-        <div class="small muted">แตะเพื่อสร้างนัดวัคซีนอัตโนมัติจากวันเกิด</div>
-      </div>`;
-  }
-
-  const done = vaccines.filter(v => v.done).sort((a, b) => b.date.localeCompare(a.date));
-  const next = vaccines.filter(v => !v.done).sort((a, b) => a.date.localeCompare(b.date))[0];
-  const lastDone = done[0];
-  const overdue = next && next.date < today;
-
-  return `<div class="section-title">💉 วัคซีน <span class="small muted" style="font-weight:400">· ฉีดแล้ว ${done.length}/${vaccines.length} เข็ม</span></div>
-    <div class="card" onclick="go('appt')" style="cursor:pointer">
-      ${next ? `<div class="flex between" style="gap:10px">
-        <div style="flex:1;min-width:0">
-          <div class="small muted">💉 เข็มถัดไป</div>
-          <div class="t" style="font-weight:700">${esc(vShort(next.title))}</div>
-          <div class="s" style="color:${overdue ? "var(--red)" : "var(--ink-soft)"}">${fmtDateFull(next.date + "T00:00")}</div>
-        </div>
-        <div class="badge" style="background:${overdue ? "var(--red)" : "var(--teal-d)"};color:#fff;white-space:nowrap;align-self:center">${daysUntil(next.date)}</div>
-      </div>` : `<div class="center" style="padding:6px 0"><div style="font-size:26px">🎉</div><div class="t" style="font-weight:700">ฉีดครบตามตารางแล้ว!</div></div>`}
-      ${lastDone ? `<div class="small muted" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">✅ ล่าสุด: ${esc(vShort(lastDone.title))} · ${fmtDate(lastDone.date)}</div>` : ""}
+  return `<div class="section-title">💉 วัคซีน <span class="small muted" style="font-weight:400">· ฉีดแล้ว ${list.length} เข็ม</span></div>
+    <div class="card" onclick="go('vaccines')" style="cursor:pointer">
+      ${rec ? `<div class="small muted">📌 แนะนำตามวัยถัดไป</div>
+        <div class="t" style="font-weight:700">${esc(rec.label)}: ${esc(rec.name)}</div>
+        <div class="s muted">ประมาณ ${fmtDate(rec.date)}</div>` : `<div class="t" style="font-weight:700">ฉีดครบตามเกณฑ์พื้นฐานแล้ว 🎉</div>`}
+      ${last ? `<div class="small muted" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">✅ ล่าสุด: ${esc(last.name)} · ${fmtDate(last.date)}</div>`
+      : `<div class="small muted" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">แตะเพื่อบันทึกวัคซีนที่ฉีดแล้ว (ถ่ายรูปแนบได้)</div>`}
     </div>`;
 }
 
@@ -440,6 +435,105 @@ function insuranceCard() {
         <div class="time">›</div>
       </div>
     </div>`;
+}
+
+/* ==================================================================
+   VACCINES (สมุดบันทึกวัคซีนที่ฉีดแล้ว + ถ่ายรูป)
+   ================================================================== */
+function viewVaccines() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const list = [...(Store.data.vaccines || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const rec = nextRecommendedVaccine();
+
+  const body = list.length ? list.map(v => `<div class="card mem-card">
+      ${v.photo ? `<img class="mem-img" src="${v.photo}" alt="">` : ""}
+      <div class="flex between" style="align-items:flex-start">
+        <h3 style="flex:1">💉 ${esc(v.name)}</h3>
+        <button class="del-btn" onclick="delItem('vaccines','${v.id}')">🗑️</button>
+      </div>
+      <div class="small muted" style="margin:2px 0 4px">📅 ${fmtDateFull(v.date + "T00:00")}${ageTextAtDate(v.date) ? " · อายุ " + ageTextAtDate(v.date) : ""}</div>
+      ${v.note ? `<div class="small">📝 ${esc(v.note)}</div>` : ""}
+    </div>`).join("")
+    : `<div class="card"><div class="empty"><span class="e">💉</span>ยังไม่มีบันทึกวัคซีน<br>ไปฉีดเสร็จ แตะ ＋ เพื่อบันทึก (ถ่ายรูปสมุด/สติกเกอร์แนบได้)</div></div>`;
+
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>💉 วัคซีน</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 10px">บันทึกวัคซีนที่ลูกได้รับจริง — ฉีดเสร็จก็ถ่ายรูป + ลงข้อมูลได้เลย</div>
+
+    ${rec ? `<div class="card" style="border:2px solid var(--teal)">
+      <div class="small muted">📌 แนะนำตามวัยถัดไป (ยึดนัดหมอเป็นหลัก)</div>
+      <div class="t" style="font-weight:700">${esc(rec.label)}: ${esc(rec.name)}</div>
+      <div class="s muted">ประมาณ ${fmtDateFull(rec.date + "T00:00")}</div>
+    </div>` : ""}
+
+    <button class="btn block" onclick="sheetVaccine()">➕ บันทึกวัคซีนที่ฉีด</button>
+
+    <div class="section-title">รายการที่ฉีดแล้ว (${list.length})</div>
+    ${body}
+
+    <details class="card"><summary style="cursor:pointer;font-weight:700">📋 ดูตารางวัคซีนแนะนำตามวัย</summary>
+      <div class="small" style="margin-top:8px;line-height:1.8">
+        ${VACCINE_SCHEDULE.map(v => `• <b>${v.atMonth === 0 ? "แรกเกิด" : v.atMonth + " เดือน"}</b> — ${esc(v.name)}`).join("<br>")}
+        <div class="muted" style="margin-top:6px">* วัคซีนใช้อายุจริง ยึดตามที่แพทย์นัด · มีวัคซีนเสริมเพิ่มได้ (PCV, ไข้หวัดใหญ่ ฯลฯ)</div>
+      </div>
+    </details>
+  </div>`;
+}
+
+let vacPhoto = "";
+function sheetVaccine() {
+  vacPhoto = "";
+  openSheet("💉 บันทึกวัคซีนที่ฉีด", `
+    <div class="center" style="margin-bottom:14px">
+      <label style="cursor:pointer">
+        <div id="vac-photo-prev" class="mem-prev">📷<div class="small muted" style="margin-top:4px">ถ่าย/แนบรูป<br>(สมุด/สติกเกอร์)</div></div>
+        <input type="file" accept="image/*" style="display:none" onchange="pickVacPhoto(event)">
+      </label>
+    </div>
+    <label class="field"><span>ชื่อวัคซีน (เลือกด่วน)</span>
+      <div class="chips" style="max-height:132px;overflow-y:auto">
+        ${VACCINE_NAMES.map(n => `<button class="chip" type="button" onclick="selVacName(this,'${esc(n)}')">${esc(n)}</button>`).join("")}
+      </div>
+    </label>
+    <label class="field"><span>ชื่อวัคซีน</span><input type="text" id="vac-name" placeholder="เช่น RSV (ENFLONSIA)"></label>
+    <label class="field"><span>วันที่ฉีด</span><input type="date" id="vac-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>หมายเหตุ (Lot / รพ. — ไม่บังคับ)</span><input type="text" id="vac-note" placeholder="เช่น Lot A007801"></label>
+    <button class="btn block" onclick="saveVaccine()">💾 บันทึก</button>
+  `);
+}
+function selVacName(btn, name) {
+  [...btn.parentNode.children].forEach(c => c.classList.remove("active"));
+  btn.classList.add("active");
+  const el = $("#vac-name"); if (el) el.value = (name === "อื่นๆ" ? "" : name);
+}
+function pickVacPhoto(ev) {
+  const file = ev.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const maxD = 1100; let w = img.width, h = img.height;
+      if (w > h && w > maxD) { h = h * maxD / w; w = maxD; } else if (h > maxD) { w = w * maxD / h; h = maxD; }
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      c.getContext("2d").drawImage(img, 0, 0, w, h);
+      try { vacPhoto = c.toDataURL("image/jpeg", 0.8); } catch (err) { alert("รูปใหญ่เกินไป"); return; }
+      const prev = document.getElementById("vac-photo-prev");
+      if (prev) prev.innerHTML = `<img src="${vacPhoto}" alt="">`;
+    };
+    img.onerror = () => alert("เปิดรูปไม่สำเร็จ");
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function saveVaccine() {
+  const name = $("#vac-name").value.trim();
+  if (!name) { alert("กรุณาใส่ชื่อวัคซีน"); return; }
+  try {
+    Store.add("vaccines", { name, date: $("#vac-date").value || dayKey(new Date()), note: $("#vac-note").value.trim(), photo: vacPhoto });
+  } catch (e) { alert("พื้นที่จัดเก็บเต็ม ลองใช้รูปเล็กลง"); return; }
+  vacPhoto = "";
+  closeSheet();
+  render();
 }
 
 /* ==================================================================
@@ -1205,8 +1299,9 @@ function viewMore() {
     ["teeth", "🦷", "ผังฟันน้ำนม", teethN ? `ขึ้นแล้ว ${teethN}/20 ซี่` : "บันทึกฟันที่ขึ้นแต่ละซี่"],
     ["sizes", "👕", "ไซส์เสื้อผ้า-รองเท้า", latestSize ? `ล่าสุด ${[latestSize.clothing && "เสื้อ " + latestSize.clothing, latestSize.shoe && "รองเท้า " + latestSize.shoe].filter(Boolean).join(" · ") || "บันทึกแล้ว"}` : "จดไซส์ปัจจุบันไว้ตอนซื้อของ"],
     ["healthcard", "🩺", "บัตรสุขภาพ & ประกัน", hasCard ? "ดู/แก้ไขข้อมูลสุขภาพ & ประกัน" : "กรุ๊ปเลือด แพ้ยา/อาหาร ประกัน เบอร์ฉุกเฉิน"],
+    ["vaccines", "💉", "วัคซีน", (Store.data.vaccines || []).length ? `ฉีดแล้ว ${Store.data.vaccines.length} เข็ม` : "บันทึกวัคซีนที่ฉีด (ถ่ายรูปได้)"],
     ["health", "🌡️", "สุขภาพ (ไข้ & ยา)", maxTemp ? `ไข้วันนี้สูงสุด ${maxTemp}°C` : "บันทึกอุณหภูมิ & ยา/วิตามิน"],
-    ["appt", "💉", "นัดหมอ & วัคซีน", `${apptLeft} นัดที่กำลังจะถึง`],
+    ["appt", "🩺", "นัดหมอ", `${apptLeft} นัดที่กำลังจะถึง`],
     ["shopping", "🛒", "ของต้องซื้อให้ลูก", `เหลือ ${shopLeft} รายการ`],
     ["sync", "🔄", "ซิงค์ข้อมูลพ่อแม่", (typeof Sync !== "undefined" && Sync.ready) ? `✅ เปิดอยู่ (รหัส ${Sync.code})` : "ให้ข้อมูลตรงกันทุกเครื่อง"],
     ["profile", "👶", "ข้อมูลลูกน้อย", Store.data.profile.name || "ยังไม่ได้ตั้งค่า"],
@@ -1263,13 +1358,13 @@ function toggleShop(id, ev) {
 /* ---- Appointments ---- */
 function viewAppt() {
   const today = dayKey(new Date());
-  const appts = [...Store.data.appointments].sort((a, b) => a.date.localeCompare(b.date));
+  // เฉพาะนัดหมอ (ไม่รวมวัคซีน — วัคซีนไปอยู่เมนู 💉 วัคซีน)
+  const appts = [...Store.data.appointments].filter(a => !a.isVaccine).sort((a, b) => a.date.localeCompare(b.date));
   const upcoming = appts.filter(a => !a.done && a.date >= today);
   const past = appts.filter(a => a.done || a.date < today).reverse();
-  const hasVaccine = Store.data.appointments.some(a => a.isVaccine);
 
   const row = a => `<div class="list-item">
-    <div class="bubble appt">${a.isVaccine ? "💉" : "🩺"}</div>
+    <div class="bubble appt">🩺</div>
     <div class="body"><div class="t" ${a.done ? 'style="text-decoration:line-through;color:var(--ink-soft)"' : ""}>${esc(a.title)}</div>
       <div class="s">${fmtDateFull(a.date + "T00:00")}${a.time ? " · " + a.time + " น." : ""}${a.place ? " · " + esc(a.place) : ""}</div>
       ${a.note ? `<div class="s">📝 ${esc(a.note)}</div>` : ""}</div>
@@ -1278,10 +1373,10 @@ function viewAppt() {
   </div>`;
 
   return topbar() + `<div class="screen">
-    <h2>🩺 นัดหมอ & วัคซีน</h2>
-    ${!hasVaccine && Store.data.profile.birthDate ? `<div class="alert"><span class="e">💉</span><div>สร้างตารางวัคซีนอัตโนมัติจากวันเกิดของลูกได้เลย<br><button class="btn sm teal mt" onclick="genVaccines()">➕ สร้างตารางวัคซีนตามเกณฑ์</button></div></div>` : ""}
+    <h2>🩺 นัดหมอ</h2>
+    <div class="small muted" style="margin:2px 0 10px">นัดตรวจสุขภาพ/นัดหมอ (วัคซีนดูที่เมนู 💉 วัคซีน)</div>
     <div class="section-title">📅 กำลังจะถึง</div>
-    <div class="card">${upcoming.length ? upcoming.map(row).join("") : `<div class="empty small">ไม่มีนัดที่กำลังจะถึง</div>`}</div>
+    <div class="card">${upcoming.length ? upcoming.map(row).join("") : `<div class="empty small">ไม่มีนัด — แตะ ＋ เพื่อเพิ่มนัดหมอ</div>`}</div>
     ${past.length ? `<div class="section-title">✔️ ผ่านไปแล้ว</div><div class="card">${past.map(row).join("")}</div>` : ""}
   </div>`;
 }
@@ -2098,6 +2193,7 @@ function fabAction() {
   if (r === "appt") return sheetAppt();
   if (r === "dev") return go("dev");
   if (r === "diary") return sheetMemory();
+  if (r === "vaccines") return sheetVaccine();
   if (r === "sizes") return sheetSize();
   if (r === "letters") return sheetLetter();
   if (r === "quotes") return sheetQuote();

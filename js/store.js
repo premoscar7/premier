@@ -17,6 +17,7 @@ const CHILD_FIELDS = {
   teeth: {},          // { toothId: "YYYY-MM-DD" }
   healthInfo: {},     // บัตรสุขภาพ
   sizes: [],          // {id, date, clothing, shoe, diaper, note}
+  vaccines: [],       // {id, date, name, photo, note} — สมุดบันทึกวัคซีนที่ฉีดแล้ว
   letters: [],        // {id, date, title, body}
   quotes: [],         // {id, date, text, note}
   feeds: [], sleeps: [], diapers: [],  // (เดิม — เก็บไว้เพื่อความเข้ากันได้)
