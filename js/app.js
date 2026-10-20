@@ -978,9 +978,9 @@ function analyzeDevelopment() {
   // ผู้ปกครองเริ่มใช้ฟีเจอร์แล้วหรือยัง (ติ๊กอย่างน้อย 1 ข้อ)
   const engaged = Object.keys(ms).length > 0;
 
-  // build AI insights text
+  // build AI insights text (ใช้อายุพัฒนาการสำหรับเด็กคลอดก่อนกำหนด)
   const name = esc(Store.data.profile.name || "ลูกน้อย");
-  let msg = `${name}อายุ ${ageText()} 🎉 `;
+  let msg = `${name}${isPreterm() ? `อายุพัฒนาการ ${correctedAgeText()} (อายุจริง ${ageText()})` : `อายุ ${ageText()}`} 🎉 `;
   if (!engaged) {
     msg += `มาเริ่มติ๊กทักษะที่น้องทำได้ในหน้านี้กันนะ แล้วผู้ช่วยจะช่วยวิเคราะห์พัฒนาการและคอยเตือนสิ่งที่ควรสังเกตให้เอง`;
   } else if (result.pct >= 80) {
