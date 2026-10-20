@@ -152,7 +152,7 @@ a { color: inherit; }
 /* ---------- Forms ---------- */
 label.field { display: block; margin-bottom: 14px; }
 label.field > span { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; color: var(--ink); }
-input[type=text], input[type=number], input[type=date], input[type=time], input[type=datetime-local], select, textarea {
+input[type=text], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=tel], input[type=email], select, textarea {
   width: 100%; padding: 12px 14px; border-radius: 14px; border: 2px solid var(--line);
   background: #FFFDF9; color: var(--ink); outline: none; transition: border-color .15s;
 }
@@ -470,8 +470,8 @@ svg.chart { display: block; width: 100%; height: auto; }
     --ink-soft: #DACCBE; --line: #463C35;
     --shadow: 0 8px 24px rgba(0,0,0,.35); --shadow-sm: 0 4px 12px rgba(0,0,0,.3);
   }
-  input, select, textarea { background: #262120; color: var(--ink); }
-  input::placeholder, textarea::placeholder { color: #8C7B6D; }
+  input[type=text], input[type=number], input[type=date], input[type=time], input[type=datetime-local], input[type=tel], input[type=email], select, textarea { background: #262120; color: var(--ink); }
+  input::placeholder, textarea::placeholder { color: #A8988A; }
   .nav { background: rgba(37,31,28,.96); }
   .badge { background: #3A332E; color: #E4D6C8; }
   /* ปุ่ม chip ที่ยังไม่เลือก ให้ตัวอักษรชัดขึ้น */
