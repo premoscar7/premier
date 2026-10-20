@@ -1,5 +1,5 @@
 /* Baby Kids — service worker (offline cache) */
-const CACHE = "babykids-v33";
+const CACHE = "babykids-v35";
 const ASSETS = [
   "./",
   "index.html",

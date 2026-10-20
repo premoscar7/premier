@@ -200,9 +200,9 @@ function isLoggedIn() {
 }
 function viewLogin() {
   const lastCode = esc((localStorage.getItem("bk.familyCode") || "").trim());
-  return `<div class="screen" style="max-width:420px;margin:0 auto;padding-top:7vh">
+  return `<div class="screen login-in" style="max-width:420px;margin:0 auto;padding-top:7vh">
     <div class="center" style="margin-bottom:18px">
-      <div style="font-size:64px;line-height:1">🦒</div>
+      <div class="login-giraffe" style="font-size:64px;line-height:1">🦒</div>
       <h1 style="margin:8px 0 2px">Baby <span style="color:var(--pink,#FF6FA5)">Kids</span></h1>
       <p class="small muted">สมุดบันทึกลูกน้อย</p>
     </div>
@@ -300,6 +300,8 @@ function viewHome() {
     </div>
 
     ${feverAlertHome()}
+    ${monthMilestoneHome()}
+    ${apptReminderHome()}
 
     <div class="section-title">⚡ ทางลัด</div>
     <div class="quick-grid">
@@ -448,6 +450,42 @@ function upcomingAppt() {
   return Store.data.appointments
     .filter(a => !a.done && !a.isVaccine && a.date >= today)  // วัคซีนมีการ์ดของตัวเอง
     .sort((a, b) => a.date.localeCompare(b.date))[0];
+}
+
+/* ---- แถบเตือนนัดที่ใกล้ถึง (ภายใน 7 วัน) บนหน้าแรก ---- */
+function apptReminderHome() {
+  const up = upcomingAppt();
+  if (!up || !up.date) return "";
+  const diff = Math.round((new Date(up.date + "T00:00") - new Date(new Date().toDateString())) / 86400000);
+  if (diff < 0 || diff > 7) return "";
+  const when = diff === 0 ? "วันนี้!" : diff === 1 ? "พรุ่งนี้" : "อีก " + diff + " วัน";
+  return `<div class="alert" style="background:linear-gradient(135deg,#E6F7F5,#FFF7E8);border-color:#8FD6CF;cursor:pointer" onclick="go('appt')">
+    <span class="e">🔔</span><div><b>${when} ถึงนัด: ${esc(up.title)}</b><br>
+    <span class="small muted">📅 ${fmtDateFull(up.date + "T00:00")}${up.time ? " · " + up.time + " น." : ""}${up.place ? " · " + esc(up.place) : ""}</span></div></div>`;
+}
+
+/* ---- ฉลองวันครบเดือน/ครบขวบ (เด้งครั้งเดียวต่อวัน) ---- */
+function monthMilestoneHome() {
+  const p = Store.data.profile;
+  if (!p.birthDate) return "";
+  const birth = new Date(p.birthDate + "T00:00");
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let nMonth = 0;
+  for (let n = 1; n <= 60; n++) {
+    const d = new Date(birth); d.setMonth(d.getMonth() + n);
+    if (d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate()) { nMonth = n; break; }
+  }
+  if (!nMonth) return "";
+  const label = nMonth % 12 === 0 ? (nMonth / 12) + " ขวบ" : nMonth + " เดือน";
+  try {
+    const tag = (Store.activeId || "") + ":" + dayKey(today) + ":" + nMonth;
+    if (localStorage.getItem("bk.celebMonth") !== tag) {
+      localStorage.setItem("bk.celebMonth", tag);
+      setTimeout(() => { try { celebrate(); } catch (e) { } }, 500);
+    }
+  } catch (e) { }
+  return `<div class="alert" style="background:linear-gradient(135deg,#FFE3F1,#FFF0D9);border-color:#FFC3E1">
+    <span class="e">🎂</span><div><b>สุขสันต์วันครบ ${label}!</b> วันนี้${esc(p.name || "ลูกน้อย")}ครบ ${label}แล้ว 🎉 โตขึ้นทุกวันเลย 💛</div></div>`;
 }
 function vShort(title) { return String(title || "").replace(/^วัคซีน:\s*/, ""); }
 
@@ -608,6 +646,7 @@ function saveVaccine() {
   vacPhoto = "";
   closeSheet();
   render();
+  setTimeout(() => { try { celebrate(); } catch (e) { } }, 150);
 }
 
 /* ==================================================================
@@ -978,7 +1017,8 @@ function viewSizes() {
     return `<div class="list-item">
       <div class="bubble milk">👕</div>
       <div class="body"><div class="t">${esc(parts)}</div><div class="s">${fmtDateFull(s.date + "T00:00")}${ageTextAtDate(s.date) ? " · อายุ " + ageTextAtDate(s.date) : ""}${s.note ? " · " + esc(s.note) : ""}</div></div>
-      <button class="del-btn" onclick="delItem('sizes','${s.id}')">🗑️</button>
+      <button class="del-btn" onclick="sheetSize('${s.id}')" title="แก้ไข">✏️</button>
+      <button class="del-btn" onclick="delItem('sizes','${s.id}')" title="ลบ">🗑️</button>
     </div>`;
   }).join("") : `<div class="empty small">ยังไม่มีประวัติ</div>`;
 
@@ -990,20 +1030,25 @@ function viewSizes() {
     <div class="card">${hist}</div>
   </div>`;
 }
-function sheetSize() {
-  openSheet("👕 อัปเดตไซส์", `
-    <label class="field"><span>วันที่</span><input type="date" id="sz-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
-    <label class="field"><span>ไซส์เสื้อผ้า</span><input type="text" id="sz-clothing" placeholder="เช่น 80, 12-18m, M"></label>
-    <label class="field"><span>ไซส์รองเท้า</span><input type="text" id="sz-shoe" placeholder="เช่น 13 ซม. / เบอร์ 22"></label>
-    <label class="field"><span>ไซส์ผ้าอ้อม</span><input type="text" id="sz-diaper" placeholder="เช่น M, L, XL"></label>
-    <label class="field"><span>หมายเหตุ</span><input type="text" id="sz-note" placeholder="ไม่บังคับ"></label>
-    <button class="btn block" onclick="saveSize()">💾 บันทึก</button>
+let _editSizeId = null;
+function sheetSize(editId) {
+  _editSizeId = editId || null;
+  const s = editId ? (Store.data.sizes || []).find(x => x.id === editId) : null;
+  openSheet(s ? "✏️ แก้ไขไซส์" : "👕 อัปเดตไซส์", `
+    <label class="field"><span>วันที่</span><input type="date" id="sz-date" value="${s ? esc(s.date) : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>ไซส์เสื้อผ้า</span><input type="text" id="sz-clothing" value="${s ? esc(s.clothing || "") : ""}" placeholder="เช่น 80, 12-18m, M"></label>
+    <label class="field"><span>ไซส์รองเท้า</span><input type="text" id="sz-shoe" value="${s ? esc(s.shoe || "") : ""}" placeholder="เช่น 13 ซม. / เบอร์ 22"></label>
+    <label class="field"><span>ไซส์ผ้าอ้อม</span><input type="text" id="sz-diaper" value="${s ? esc(s.diaper || "") : ""}" placeholder="เช่น M, L, XL"></label>
+    <label class="field"><span>หมายเหตุ</span><input type="text" id="sz-note" value="${s ? esc(s.note || "") : ""}" placeholder="ไม่บังคับ"></label>
+    <button class="btn block" onclick="saveSize()">💾 ${s ? "บันทึกการแก้ไข" : "บันทึก"}</button>
   `);
 }
 function saveSize() {
   const clothing = $("#sz-clothing").value.trim(), shoe = $("#sz-shoe").value.trim(), diaper = $("#sz-diaper").value.trim();
   if (!clothing && !shoe && !diaper) { alert("ใส่ไซส์อย่างน้อย 1 อย่าง"); return; }
-  Store.add("sizes", { date: $("#sz-date").value || dayKey(new Date()), clothing, shoe, diaper, note: $("#sz-note").value.trim() });
+  const data = { date: $("#sz-date").value || dayKey(new Date()), clothing, shoe, diaper, note: $("#sz-note").value.trim() };
+  if (_editSizeId) { Store.update("sizes", _editSizeId, data); _editSizeId = null; }
+  else Store.add("sizes", data);
   closeSheet(); render();
 }
 
@@ -1020,7 +1065,8 @@ function viewLetters() {
     body = list.map(l => `<div class="card">
       <div class="flex between" style="align-items:flex-start">
         <h3 style="flex:1">${esc(l.title || "ถึงลูกรัก")}</h3>
-        <button class="del-btn" onclick="delItem('letters','${l.id}')">🗑️</button>
+        <button class="del-btn" onclick="sheetLetter('${l.id}')" title="แก้ไข">✏️</button>
+        <button class="del-btn" onclick="delItem('letters','${l.id}')" title="ลบ">🗑️</button>
       </div>
       <div class="small muted" style="margin:2px 0 8px">📅 ${fmtDateFull(l.date + "T00:00")}${ageTextAtDate(l.date) ? " · อายุ " + ageTextAtDate(l.date) : ""}</div>
       <div style="white-space:pre-wrap;font-family:var(--font-fun);line-height:1.7">${esc(l.body)}</div>
@@ -1032,18 +1078,23 @@ function viewLetters() {
     ${body}
   </div>`;
 }
-function sheetLetter() {
-  openSheet("💌 เขียนจดหมายถึงลูก", `
-    <label class="field"><span>หัวข้อ</span><input type="text" id="lt-title" placeholder="เช่น ถึงลูกในวันเกิดขวบแรก"></label>
-    <label class="field"><span>วันที่</span><input type="date" id="lt-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
-    <label class="field"><span>ข้อความ</span><textarea id="lt-body" style="min-height:160px" placeholder="เขียนถึงลูก..."></textarea></label>
-    <button class="btn pink block" onclick="saveLetter()">💾 บันทึกจดหมาย</button>
+let _editLetterId = null;
+function sheetLetter(editId) {
+  _editLetterId = editId || null;
+  const l = editId ? (Store.data.letters || []).find(x => x.id === editId) : null;
+  openSheet(l ? "✏️ แก้ไขจดหมาย" : "💌 เขียนจดหมายถึงลูก", `
+    <label class="field"><span>หัวข้อ</span><input type="text" id="lt-title" value="${l ? esc(l.title || "") : ""}" placeholder="เช่น ถึงลูกในวันเกิดขวบแรก"></label>
+    <label class="field"><span>วันที่</span><input type="date" id="lt-date" value="${l ? esc(l.date) : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>ข้อความ</span><textarea id="lt-body" style="min-height:160px" placeholder="เขียนถึงลูก...">${l ? esc(l.body || "") : ""}</textarea></label>
+    <button class="btn pink block" onclick="saveLetter()">💾 ${l ? "บันทึกการแก้ไข" : "บันทึกจดหมาย"}</button>
   `);
 }
 function saveLetter() {
   const body = $("#lt-body").value.trim();
   if (!body) { alert("กรุณาเขียนข้อความ"); return; }
-  Store.add("letters", { title: $("#lt-title").value.trim(), date: $("#lt-date").value || dayKey(new Date()), body });
+  const data = { title: $("#lt-title").value.trim(), date: $("#lt-date").value || dayKey(new Date()), body };
+  if (_editLetterId) { Store.update("letters", _editLetterId, data); _editLetterId = null; }
+  else Store.add("letters", data);
   closeSheet(); render();
 }
 
@@ -1060,7 +1111,8 @@ function viewQuotes() {
     body = list.map(q => `<div class="card">
       <div class="flex between" style="align-items:flex-start">
         <div style="flex:1;font-family:var(--font-fun);font-size:18px">“${esc(q.text)}”</div>
-        <button class="del-btn" onclick="delItem('quotes','${q.id}')">🗑️</button>
+        <button class="del-btn" onclick="sheetQuote('${q.id}')" title="แก้ไข">✏️</button>
+        <button class="del-btn" onclick="delItem('quotes','${q.id}')" title="ลบ">🗑️</button>
       </div>
       <div class="small muted" style="margin-top:6px">${fmtDateFull(q.date + "T00:00")}${ageTextAtDate(q.date) ? " · อายุ " + ageTextAtDate(q.date) : ""}${q.note ? " · " + esc(q.note) : ""}</div>
     </div>`).join("");
@@ -1071,18 +1123,23 @@ function viewQuotes() {
     ${body}
   </div>`;
 }
-function sheetQuote() {
-  openSheet("💬 เพิ่มคำพูดน่ารัก", `
-    <label class="field"><span>คำพูด/เรื่องที่ลูกพูด</span><textarea id="qt-text" placeholder="เช่น หนูรักแม่เท่าฟ้าเลย!"></textarea></label>
-    <label class="field"><span>วันที่</span><input type="date" id="qt-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
-    <label class="field"><span>หมายเหตุ (ไม่บังคับ)</span><input type="text" id="qt-note" placeholder="เช่น ตอนกินข้าวเย็น"></label>
-    <button class="btn teal block" onclick="saveQuote()">💾 บันทึก</button>
+let _editQuoteId = null;
+function sheetQuote(editId) {
+  _editQuoteId = editId || null;
+  const q = editId ? (Store.data.quotes || []).find(x => x.id === editId) : null;
+  openSheet(q ? "✏️ แก้ไขคำพูด" : "💬 เพิ่มคำพูดน่ารัก", `
+    <label class="field"><span>คำพูด/เรื่องที่ลูกพูด</span><textarea id="qt-text" placeholder="เช่น หนูรักแม่เท่าฟ้าเลย!">${q ? esc(q.text || "") : ""}</textarea></label>
+    <label class="field"><span>วันที่</span><input type="date" id="qt-date" value="${q ? esc(q.date) : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>หมายเหตุ (ไม่บังคับ)</span><input type="text" id="qt-note" value="${q ? esc(q.note || "") : ""}" placeholder="เช่น ตอนกินข้าวเย็น"></label>
+    <button class="btn teal block" onclick="saveQuote()">💾 ${q ? "บันทึกการแก้ไข" : "บันทึก"}</button>
   `);
 }
 function saveQuote() {
   const text = $("#qt-text").value.trim();
   if (!text) { alert("กรุณาใส่คำพูด"); return; }
-  Store.add("quotes", { text, date: $("#qt-date").value || dayKey(new Date()), note: $("#qt-note").value.trim() });
+  const data = { text, date: $("#qt-date").value || dayKey(new Date()), note: $("#qt-note").value.trim() };
+  if (_editQuoteId) { Store.update("quotes", _editQuoteId, data); _editQuoteId = null; }
+  else Store.add("quotes", data);
   closeSheet(); render();
 }
 
@@ -1182,8 +1239,8 @@ function growthChart(type) {
   // data line + points
   let dline = "", dots = "";
   if (data.length) {
-    dline = `<polyline points="${data.map(d => `${X(d.m)},${Y(d.v)}`).join(" ")}" fill="none" stroke="var(--orange-d)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
-    dots = data.map(d => `<circle cx="${X(d.m)}" cy="${Y(d.v)}" r="5" fill="#fff" stroke="var(--orange-d)" stroke-width="3"/>`).join("");
+    dline = `<polyline class="draw-line" points="${data.map(d => `${X(d.m)},${Y(d.v)}`).join(" ")}" fill="none" stroke="var(--orange-d)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`;
+    dots = data.map(d => `<circle class="draw-dot" cx="${X(d.m)}" cy="${Y(d.v)}" r="5" fill="#fff" stroke="var(--orange-d)" stroke-width="3"/>`).join("");
   }
 
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img">
@@ -1444,8 +1501,9 @@ function viewAppt() {
     <div class="body"><div class="t" ${a.done ? 'style="text-decoration:line-through;color:var(--ink-soft)"' : ""}>${esc(a.title)}</div>
       <div class="s">${fmtDateFull(a.date + "T00:00")}${a.time ? " · " + a.time + " น." : ""}${a.place ? " · " + esc(a.place) : ""}</div>
       ${a.note ? `<div class="s">📝 ${esc(a.note)}</div>` : ""}</div>
-    <button class="del-btn" onclick="toggleAppt('${a.id}')">${a.done ? "↩️" : "✅"}</button>
-    <button class="del-btn" onclick="delItem('appointments','${a.id}')">🗑️</button>
+    <button class="del-btn" onclick="toggleAppt('${a.id}')" title="${a.done ? "ยังไม่เสร็จ" : "เสร็จแล้ว"}">${a.done ? "↩️" : "✅"}</button>
+    <button class="del-btn" onclick="sheetAppt('${a.id}')" title="แก้ไข">✏️</button>
+    <button class="del-btn" onclick="delItem('appointments','${a.id}')" title="ลบ">🗑️</button>
   </div>`;
 
   return topbar() + `<div class="screen">
@@ -1561,9 +1619,9 @@ function viewSettings() {
       <p class="small muted" style="margin:4px 0 0">${(typeof Sync !== "undefined" && Sync.ready) ? "✅ เปิดอยู่ — ข้อมูลตรงกันทุกเครื่อง" : "ให้มือถือพ่อ-แม่เห็นข้อมูลเดียวกันแบบเรียลไทม์"}</p>
     </div>
     <div class="card">
-      <h3>📄 ออกเป็นสมุด PDF</h3>
-      <p class="small muted">รวมโปรไฟล์ การเติบโต พัฒนาการ ความทรงจำ คำพูด และจดหมาย เป็นสมุดสวยๆ (เลือก "บันทึกเป็น PDF" ในหน้าพิมพ์)</p>
-      <button class="btn block purple mt" onclick="exportPDF()">📄 สร้างสมุด PDF</button>
+      <h3>📄 สมุดสุขภาพ PDF</h3>
+      <p class="small muted">รวมข้อมูลสำคัญ: กรุ๊ปเลือด แพ้ยา/อาหาร โรคประจำตัว ผู้ติดต่อฉุกเฉิน ประกัน และวัคซีนที่ฉีดแล้ว — พกพา/ส่งให้หมอได้ (เลือก "บันทึกเป็น PDF" ในหน้าพิมพ์)</p>
+      <button class="btn block purple mt" onclick="exportPDF()">🩺 สร้างสมุดสุขภาพ PDF</button>
     </div>
     <div class="card">
       <h3>💾 สำรอง & กู้คืนข้อมูล</h3>
@@ -1598,74 +1656,67 @@ function exportPDF() {
   const p = Store.data.profile;
   if (!p.birthDate) { alert("กรุณาใส่ข้อมูลลูกก่อน"); return; }
   const name = esc(p.name || "ลูกน้อย");
+  const h = Store.data.healthInfo || {};
+  const vacs = [...(Store.data.vaccines || [])].sort((a, b) => a.date.localeCompare(b.date));
   const g = [...Store.data.growth].sort((a, b) => a.date.localeCompare(b.date));
-  const teethN = Object.keys(Store.data.teeth || {}).length;
-  const msMap = {}; MILESTONES.forEach(c => c.items.forEach(i => msMap[i.id] = i.text));
-  const ms = Store.data.milestones || {};
-  const msDone = Object.keys(ms).filter(id => ms[id] && ms[id].done).map(id => msMap[id]).filter(Boolean);
-  const mems = [...Store.data.memories].sort((a, b) => a.date.localeCompare(b.date));
-  const letters = [...(Store.data.letters || [])].sort((a, b) => a.date.localeCompare(b.date));
-  const quotes = [...(Store.data.quotes || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const latest = g[g.length - 1];
 
   const cover = p.photo
     ? `<img class="cover" src="${p.photo}">`
     : `<div class="cover facebox">${p.gender === "girl" ? "👧" : "👶"}</div>`;
 
   const sect = (title, inner) => inner ? `<h2>${title}</h2>${inner}` : "";
+  const kv = (rows) => rows ? `<table class="kv">${rows}</table>` : "";
+  const r = (label, val) => val ? `<tr><th>${label}</th><td>${esc(val)}</td></tr>` : "";
 
-  const growthRows = g.length ? `<table><tr><th>วันที่</th><th>น้ำหนัก</th><th>ส่วนสูง</th><th>อายุ</th></tr>${g.map(x => `<tr><td>${fmtDate(x.date)}</td><td>${x.weight ? x.weight + " กก." : "-"}</td><td>${x.height ? x.height + " ซม." : "-"}</td><td>${ageTextAtDate(x.date) || "-"}</td></tr>`).join("")}</table>` : "";
+  const allergyBlock = h.allergy ? `<div class="warn">⚠️ <b>แพ้อาหาร/ยา:</b> ${esc(h.allergy)}</div>` : "";
 
-  const milestonesHtml = msDone.length ? `<ul>${msDone.map(t => `<li>✅ ${esc(t)}</li>`).join("")}</ul>` : "";
+  const healthRows = r("กรุ๊ปเลือด", h.blood) + r("โรคประจำตัว/ภาวะสุขภาพ", h.condition) + r("ยาที่ใช้ประจำ", h.meds) + r("แพทย์/รพ. ประจำ", h.hospital);
+  const emgRows = r("ผู้ติดต่อฉุกเฉิน", h.emgName) + r("เบอร์ฉุกเฉิน", h.emgPhone);
+  const insRows = r("บริษัทประกัน", h.insCompany) + r("เลขกรมธรรม์", h.insNo) + r("แผน/ประเภท", h.insPlan)
+    + r("รพ. คู่สัญญา", h.insHospital) + r("วันหมดอายุ/ต่ออายุ", h.insExpiry ? fmtDateFull(h.insExpiry + "T00:00") : "") + r("เบอร์ติดต่อประกัน", h.insPhone);
 
-  const memsHtml = mems.map(m => `<div class="mem">
-      ${m.photo ? `<img src="${m.photo}">` : ""}
-      <div class="mem-t">${esc(m.title)}</div>
-      <div class="mem-d">${fmtDateFull(m.date + "T00:00")}${ageTextAtDate(m.date) ? " · อายุ " + ageTextAtDate(m.date) : ""}</div>
-      ${m.note ? `<div class="mem-n">${esc(m.note)}</div>` : ""}
-    </div>`).join("");
+  const vacTable = vacs.length
+    ? `<table><tr><th>วัคซีน</th><th>วันที่ฉีด</th><th>อายุ</th><th>หมายเหตุ</th></tr>${vacs.map(v => `<tr><td style="text-align:left">${esc(v.name)}</td><td>${fmtDate(v.date)}</td><td>${ageTextAtDate(v.date) || "-"}</td><td>${esc(v.note || "-")}</td></tr>`).join("")}</table>`
+    : `<div class="muted">— ยังไม่มีบันทึกวัคซีน —</div>`;
 
-  const lettersHtml = letters.map(l => `<div class="letter"><div class="mem-t">${esc(l.title || "ถึงลูกรัก")}</div><div class="mem-d">${fmtDate(l.date)}${ageTextAtDate(l.date) ? " · อายุ " + ageTextAtDate(l.date) : ""}</div><div class="letter-b">${esc(l.body)}</div></div>`).join("");
-
-  const quotesHtml = quotes.length ? `<ul class="quotes">${quotes.map(q => `<li>“${esc(q.text)}” <span class="qd">— ${fmtDate(q.date)}${ageTextAtDate(q.date) ? ", อายุ " + ageTextAtDate(q.date) : ""}</span></li>`).join("")}</ul>` : "";
+  const growthLine = latest ? `<div class="gline">ล่าสุด (${fmtDate(latest.date)}): ${[latest.weight && latest.weight + " กก.", latest.height && latest.height + " ซม.", latest.head && "รอบหัว " + latest.head + " ซม."].filter(Boolean).join(" · ")}${ageTextAtDate(latest.date) ? " · อายุ " + ageTextAtDate(latest.date) : ""}</div>` : "";
 
   const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
-  <title>สมุดบันทึก ${name}</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+Thai+2:wght@600;800&family=Sarabun:wght@400;600&family=Itim&display=swap">
+  <title>สมุดสุขภาพ ${name}</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+Thai+2:wght@600;800&family=Sarabun:wght@400;600&display=swap">
   <style>
     * { box-sizing: border-box; }
     body { font-family: 'Sarabun', sans-serif; color: #4a3f39; margin: 0; padding: 28px 30px; }
-    h1 { font-family: 'Baloo Thai 2'; color: #F58220; font-size: 30px; margin: 6px 0; }
-    h2 { font-family: 'Baloo Thai 2'; color: #2BB3AA; font-size: 20px; margin: 22px 0 8px; border-bottom: 2px solid #F2E6D6; padding-bottom: 4px; }
+    h1 { font-family: 'Baloo Thai 2'; color: #2BB3AA; font-size: 28px; margin: 6px 0; }
+    h2 { font-family: 'Baloo Thai 2'; color: #2BB3AA; font-size: 19px; margin: 20px 0 8px; border-bottom: 2px solid #F2E6D6; padding-bottom: 4px; }
     .coverwrap { text-align: center; padding: 10px 0 14px; }
-    .cover { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; border: 4px solid #FF9F43; }
-    .facebox { width: 150px; height: 150px; border-radius: 50%; background: #FFF2E0; display: inline-flex; align-items: center; justify-content: center; font-size: 80px; }
-    .sub { color: #988577; font-size: 15px; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    th, td { border: 1px solid #eadfce; padding: 6px 8px; text-align: center; }
+    .cover { width: 130px; height: 130px; border-radius: 50%; object-fit: cover; border: 4px solid #2BB3AA; }
+    .facebox { width: 130px; height: 130px; border-radius: 50%; background: #E6F7F5; display: inline-flex; align-items: center; justify-content: center; font-size: 68px; }
+    .sub { color: #776a60; font-size: 15px; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 4px 0; }
+    th, td { border: 1px solid #eadfce; padding: 7px 10px; text-align: center; }
     th { background: #FFF7EC; }
-    ul { margin: 4px 0; padding-left: 20px; } li { margin: 3px 0; font-size: 14px; }
-    .mem { page-break-inside: avoid; margin: 10px 0 14px; padding-bottom: 10px; border-bottom: 1px dashed #eadfce; }
-    .mem img { max-width: 100%; max-height: 300px; border-radius: 10px; display: block; margin-bottom: 6px; }
-    .mem-t { font-weight: 700; font-size: 16px; }
-    .mem-d { color: #988577; font-size: 13px; }
-    .mem-n { margin-top: 3px; }
-    .letter { page-break-inside: avoid; margin: 10px 0; }
-    .letter-b { font-family: 'Itim'; white-space: pre-wrap; line-height: 1.7; margin-top: 4px; }
-    .quotes li { font-family: 'Itim'; font-size: 15px; }
-    .qd { color: #988577; font-size: 12px; font-family: 'Sarabun'; }
+    .kv th { text-align: left; width: 42%; }
+    .kv td { text-align: left; }
+    .warn { background: #FFE9E9; border: 2px solid #F3A3A3; color: #B4232B; padding: 11px 14px; border-radius: 10px; font-size: 15.5px; margin: 12px 0; }
+    .muted { color: #988577; font-size: 14px; }
+    .gline { font-size: 15px; }
     .foot { text-align: center; color: #b7a594; font-size: 12px; margin-top: 26px; }
-    @media print { body { padding: 0; } @page { margin: 16mm; } }
+    @media print { body { padding: 0; } @page { margin: 16mm; } table, .warn { page-break-inside: avoid; } }
   </style></head><body>
     <div class="coverwrap">
       ${cover}
-      <h1>สมุดบันทึกของ ${name} 🦒</h1>
-      <div class="sub">${p.gender === "girl" ? "เด็กหญิง" : "เด็กชาย"} · เกิด ${fmtDateFull(p.birthDate + "T00:00")} · ปัจจุบันอายุ ${ageText()}</div>
+      <h1>🩺 สมุดสุขภาพของ ${name}</h1>
+      <div class="sub">${p.gender === "girl" ? "เด็กหญิง" : "เด็กชาย"} · เกิด ${fmtDateFull(p.birthDate + "T00:00")} · อายุ ${ageText()}${h.blood ? ` · กรุ๊ปเลือด <b>${esc(h.blood)}</b>` : ""}</div>
     </div>
-    ${sect("📈 การเติบโต" + (teethN ? ` · 🦷 ฟันขึ้น ${teethN}/20 ซี่` : ""), growthRows)}
-    ${sect("🎯 พัฒนาการที่ทำได้ (" + msDone.length + " ข้อ)", milestonesHtml)}
-    ${sect("📸 ความทรงจำ", memsHtml)}
-    ${sect("💬 คำพูดน่ารัก", quotesHtml)}
-    ${sect("💌 จดหมายถึงลูก", lettersHtml)}
+    ${allergyBlock}
+    ${sect("🩺 ข้อมูลสุขภาพ", kv(healthRows))}
+    ${sect("📞 ติดต่อฉุกเฉิน", kv(emgRows))}
+    ${sect("🛡️ ประกัน", kv(insRows))}
+    ${sect("💉 วัคซีนที่ฉีดแล้ว (" + vacs.length + " เข็ม)", vacTable)}
+    ${growthLine ? sect("📈 การเติบโตล่าสุด", growthLine) : ""}
+    ${h.note ? sect("📝 หมายเหตุ", `<div>${esc(h.note)}</div>`) : ""}
     <div class="foot">สร้างด้วย Baby Kids 🦒 · ${fmtDateFull(dayKey(new Date()) + "T00:00")}</div>
   </body></html>`;
 
@@ -1716,7 +1767,7 @@ function viewSync() {
 
     <div class="ai-card" style="background:linear-gradient(135deg,#2BB3AA,#4ECDC4)">
       <h3>☁️ ข้อมูลตรงกันทุกเครื่อง</h3>
-      <p>เข้าสู่ระบบด้วยรหัสครอบครัวเดียวกันทั้งพ่อและแม่ → กดบันทึกที่เครื่องหนึ่ง อีกเครื่องเห็นภายในไม่กี่วินาที (เก็บใน Google Sheet ฟรี)</p>
+      <p>เข้าสู่ระบบด้วยรหัสครอบครัวเดียวกันทั้งพ่อและแม่ → กดบันทึกที่เครื่องหนึ่ง อีกเครื่องเห็นภายในไม่กี่วินาที</p>
       <span class="tag">สถานะ: ${statusMap[S.status] || "—"}</span>
     </div>
 
@@ -1757,6 +1808,7 @@ function doLogin() {
   } catch (e) { }
   if (typeof Sync !== "undefined" && Sync.cfg().url) Sync.connect(code);
   else go("home");
+  setTimeout(() => { try { celebrate(); } catch (e) { } }, 350); // ฉลองเข้าสู่ระบบ ✨
 }
 function doCreateFamily() {
   let code = prompt("ตั้งรหัสครอบครัวใหม่ (จำง่ายๆ ใช้ทั้งพ่อและแม่)\nเช่น ครอบครัว-พรีเมียร์-2026", "");
@@ -1771,6 +1823,7 @@ function doCreateFamily() {
   } catch (e) { }
   if (typeof Sync !== "undefined" && Sync.cfg().url) Sync.connect(code);
   else go("home");
+  setTimeout(() => { try { celebrate(); } catch (e) { } }, 350); // ฉลองสร้างครอบครัวใหม่ ✨
 }
 function doLogout() {
   if (!confirm("ออกจากระบบ? ต้องใส่รหัสครอบครัวอีกครั้งเพื่อเข้าใช้\n(ข้อมูลในคลาวด์ยังอยู่ครบ)")) return;
@@ -2319,6 +2372,7 @@ function saveMemory() {
   memPhoto = "";
   closeSheet();
   render();
+  setTimeout(() => { try { celebrate(); } catch (e) { } }, 150);
   if (pendingPhoto && item && imgbbKey()) uploadMemPhoto(item.id, pendingPhoto); // อัปขึ้น ImgBB → ถาวร + ทุกคนเห็น
 }
 
@@ -2431,27 +2485,37 @@ function saveGrowth() {
   const wt = $("#gr-wt").value, ht = $("#gr-ht").value, hd = $("#gr-hd").value;
   if (!wt && !ht) { alert("กรุณาใส่น้ำหนักหรือส่วนสูงอย่างน้อย 1 อย่าง"); return; }
   const data = { date: $("#gr-date").value || dayKey(new Date()), weight: wt, height: ht, head: hd };
+  const isNew = !_editGrowthId;
   if (_editGrowthId) { Store.update("growth", _editGrowthId, data); _editGrowthId = null; }
   else Store.add("growth", data);
   closeSheet(); render();
+  if (isNew) setTimeout(() => { try { celebrate(); } catch (e) { } }, 150);
 }
 
-function sheetAppt() {
-  openSheet("🩺 เพิ่มนัดหมาย", `
-    <label class="field"><span>เรื่อง</span><input type="text" id="ap-title" placeholder="เช่น ตรวจสุขภาพ 6 เดือน"></label>
+let _editApptId = null;
+function sheetAppt(editId) {
+  _editApptId = editId || null;
+  const a = editId ? (Store.data.appointments || []).find(x => x.id === editId) : null;
+  openSheet(a ? "✏️ แก้ไขนัดหมาย" : "🩺 เพิ่มนัดหมาย", `
+    <label class="field"><span>เรื่อง</span><input type="text" id="ap-title" value="${a ? esc(a.title) : ""}" placeholder="เช่น ตรวจสุขภาพ 6 เดือน"></label>
     <div class="row2">
-      <label class="field"><span>วันที่</span><input type="date" id="ap-date" value="${dayKey(new Date())}"></label>
-      <label class="field"><span>เวลา</span><input type="time" id="ap-time"></label>
+      <label class="field"><span>วันที่</span><input type="date" id="ap-date" value="${a ? esc(a.date) : dayKey(new Date())}"></label>
+      <label class="field"><span>เวลา</span><input type="time" id="ap-time" value="${a ? esc(a.time || "") : ""}"></label>
     </div>
-    <label class="field"><span>สถานที่</span><input type="text" id="ap-place" placeholder="เช่น รพ. ..."></label>
-    <label class="field"><span>หมายเหตุ</span><input type="text" id="ap-note" placeholder="เช่น เตรียมสมุดวัคซีน"></label>
-    <button class="btn block" onclick="saveAppt()">💾 บันทึก</button>
+    <label class="field"><span>สถานที่</span><input type="text" id="ap-place" value="${a ? esc(a.place || "") : ""}" placeholder="เช่น รพ. ..."></label>
+    <label class="field"><span>หมายเหตุ</span><input type="text" id="ap-note" value="${a ? esc(a.note || "") : ""}" placeholder="เช่น เตรียมสมุดวัคซีน"></label>
+    <button class="btn block" onclick="saveAppt()">💾 ${a ? "บันทึกการแก้ไข" : "บันทึก"}</button>
   `);
 }
 function saveAppt() {
   const title = $("#ap-title").value.trim();
   if (!title) { alert("กรุณาใส่เรื่องนัดหมาย"); return; }
-  Store.add("appointments", { title, date: $("#ap-date").value, time: $("#ap-time").value, place: $("#ap-place").value.trim(), note: $("#ap-note").value.trim(), done: false });
+  if (_editApptId) {
+    Store.update("appointments", _editApptId, { title, date: $("#ap-date").value, time: $("#ap-time").value, place: $("#ap-place").value.trim(), note: $("#ap-note").value.trim() });
+    _editApptId = null;
+  } else {
+    Store.add("appointments", { title, date: $("#ap-date").value, time: $("#ap-time").value, place: $("#ap-place").value.trim(), note: $("#ap-note").value.trim(), done: false });
+  }
   closeSheet(); render();
 }
 
