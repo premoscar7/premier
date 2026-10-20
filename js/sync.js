@@ -4,12 +4,27 @@
    ซิงค์แบบ near-realtime ด้วยการ poll ทุก ~3 วินาที + push เมื่อแก้
    ============================================================ */
 
-/* ---- รวม 2 ชุดข้อมูล โดยไม่ทำให้ข้อมูลหาย (union arrays by id) ---- */
-function _syncUnionById(a, b) {
-  const out = Array.isArray(a) ? a.slice() : [];
-  const seen = new Set(out.map(x => x && x.id));
-  (Array.isArray(b) ? b : []).forEach(x => { if (x && x.id && !seen.has(x.id)) { out.push(x); seen.add(x.id); } });
+/* ---- รวมฟิลด์ของรายการ id เดียวกัน: เครื่องนี้ชนะ แต่ถ้าว่างใช้ของอีกเครื่อง
+   (ทำให้ค่าที่เพิ่งเติม เช่น ลิงก์รูปบน Drive วิ่งไปเห็นอีกเครื่องได้) ---- */
+function _syncMergeItem(a, b) {
+  a = a || {}; b = b || {};
+  const out = {}; const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => {
+    const av = a[k], bv = b[k];
+    out[k] = (av === undefined || av === "" || av === null) ? bv : av;
+  });
   return out;
+}
+/* ---- รวม 2 ชุดข้อมูล โดยไม่ทำให้ข้อมูลหาย (union arrays by id + merge fields) ---- */
+function _syncUnionById(a, b) {
+  const map = {}, order = [];
+  (Array.isArray(a) ? a : []).forEach(x => { if (x && x.id) { map[x.id] = x; order.push(x.id); } });
+  (Array.isArray(b) ? b : []).forEach(x => {
+    if (!x || !x.id) return;
+    if (map[x.id]) map[x.id] = _syncMergeItem(map[x.id], x);
+    else { map[x.id] = x; order.push(x.id); }
+  });
+  return order.map(id => map[id]);
 }
 function _syncMergeProfile(a, b) {
   a = a || {}; b = b || {};

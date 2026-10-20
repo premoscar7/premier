@@ -4,7 +4,7 @@
 Store.load();
 Store.seedIfNeeded();
 
-const App = { route: "home", msCheckpoint: null, chartType: "weight", driveActiveFolder: 0, _driveCache: {}, _driveUploading: false };
+const App = { route: "home", msCheckpoint: null, chartType: "weight", driveActiveFolder: 0, driveOpen: false, _driveCache: {}, _driveUploading: false };
 
 /* ---------------- helpers ---------------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -1909,20 +1909,32 @@ function viewDiary() {
   if (mems.length === 0) {
     body = `<div class="card"><div class="empty"><span class="e">📸</span>ยังไม่มีความทรงจำ<br>แตะ ＋ เก็บโมเมนต์พิเศษครั้งแรกของลูกกันเถอะ 💛</div></div>`;
   } else {
+    const hasFolder = driveFoldersList().length > 0;
     body = mems.map(m => {
       const age = ageTextAtDate(m.date);
+      const pic = m.photoUrl || m.photo;
+      const imgTag = pic ? `<img class="mem-img" src="${pic}" alt="" loading="lazy" onerror="this.style.opacity=0.35">` : "";
+      const photoBlock = pic ? (m.photoView ? `<a href="${m.photoView}" target="_blank" rel="noopener">${imgTag}</a>` : imgTag) : "";
+      let syncNote = "";
+      if (m.photo && !m.photoUrl) {
+        syncNote = hasFolder
+          ? `<div class="small muted" style="margin-top:6px">⬆️ ${_memUploading[m.id] ? "กำลังซิงค์รูปขึ้น Drive…" : "รอซิงค์รูปขึ้น Drive…"}</div>`
+          : `<div class="small muted" style="margin-top:6px">📁 เพิ่มโฟลเดอร์ Drive เพื่อให้รูปนี้เห็นทุกเครื่อง</div>`;
+      }
       return `<div class="card mem-card">
-        ${m.photo ? `<img class="mem-img" src="${m.photo}" alt="">` : ""}
+        ${photoBlock}
         <div class="flex between" style="align-items:flex-start">
           <h3 style="flex:1">${esc(m.title)}</h3>
           <button class="del-btn" onclick="delItem('memories','${m.id}')">🗑️</button>
         </div>
         <div class="small muted" style="margin:2px 0 6px">📅 ${fmtDateFull(m.date + "T00:00")}${age ? ` · 👶 อายุ ${age}` : ""}</div>
         ${m.note ? `<div style="white-space:pre-wrap">${esc(m.note)}</div>` : ""}
+        ${syncNote}
       </div>`;
     }).join("");
   }
 
+  setTimeout(migrateMemPhotos, 400); // ค่อยๆ อัปรูปเก่าขึ้น Drive ให้เห็นทุกเครื่อง
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>📸 ไดอารี่ความทรงจำ</h2>${mems.length ? `<span class="badge">${mems.length} โมเมนต์</span>` : ""}</div>
     <div class="small muted" style="margin:2px 0 10px">เก็บภาพและเรื่องราวครั้งแรกของลูกไว้ดูในวันข้างหน้า 💛</div>
@@ -1969,6 +1981,20 @@ function driveSection() {
   const active = folders[idx];
   if (!App._driveCache[active.id]) setTimeout(() => loadDriveGallery(active.id), 30);
   const cache = App._driveCache[active.id];
+  const count = cache && cache.files ? cache.files.length : null;
+
+  // ---- ย่อเป็นโฟลเดอร์ (ค่าเริ่มต้น) — แตะเพื่อเปิดดูรูป ----
+  if (!App.driveOpen) {
+    const sub = count != null ? count + " ไฟล์ · แตะเปิดดู" : (cache && cache.loading ? "กำลังโหลด..." : "แตะเพื่อเปิด");
+    return `<button class="card" onclick="App.driveOpen=true;render()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer">
+        <span style="font-size:30px;line-height:1">📁</span>
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-weight:700">รูป/วิดีโอจาก Google Drive</span>
+          <span class="small muted">${folders.length > 1 ? folders.length + " โฟลเดอร์ · " : ""}${sub}</span>
+        </span>
+        <span style="font-size:20px;color:var(--muted)">▸</span>
+      </button>`;
+  }
 
   let grid;
   if (!cache || cache.loading) grid = `<div class="center muted small" style="padding:22px">⏳ กำลังโหลดรูปจาก Drive...</div>`;
@@ -1979,10 +2005,13 @@ function driveSection() {
       ${f.type === "video" ? '<span class="drive-play">▶</span>' : ""}
     </a>`).join("")}</div>`;
 
-  return `<div class="section-title">📁 รูป/วิดีโอจาก Google Drive</div>
-    ${folders.length > 1 ? `<div class="chips" style="margin-bottom:8px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">
+  return `<div class="flex between" style="align-items:center">
+      <div class="section-title" style="margin:0">📁 รูป/วิดีโอจาก Google Drive</div>
+      <button class="btn ghost sm" onclick="App.driveOpen=false;render()">▾ ย่อ</button>
+    </div>
+    ${folders.length > 1 ? `<div class="chips" style="margin:8px 0;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">
       ${folders.map((f, i) => `<button class="chip ${i === idx ? "active" : ""}" style="white-space:nowrap" onclick="App.driveActiveFolder=${i};render()">${esc(f.label)}</button>`).join("")}
-    </div>` : ""}
+    </div>` : `<div style="height:8px"></div>`}
     <div class="card" style="padding:12px">
       ${grid}
       <div class="flex between gap mt">
@@ -2083,10 +2112,44 @@ function removeDriveFolder(i) {
   closeSheet(); render();
 }
 
+/* ---- อัปรูปความทรงจำขึ้น Drive อัตโนมัติ → ซิงค์เห็นทุกเครื่อง ---- */
+let _memUploading = {};
+function uploadMemPhotoToDrive(memId, dataUrl) {
+  const url = (typeof Sync !== "undefined") ? Sync.cfg().url : "";
+  const folders = driveFoldersList();
+  if (!url || !folders.length || !dataUrl || _memUploading[memId]) return;
+  const b64 = (dataUrl.split(",")[1]) || "";
+  if (!b64) return;
+  _memUploading[memId] = true;
+  if (App.route === "diary") render();
+  fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "upload", folder: folders[0].id, name: "memory-" + Date.now() + ".jpg", mime: "image/jpeg", dataB64: b64 }) })
+    .then(r => r.json()).then(j => {
+      delete _memUploading[memId];
+      if (j && j.ok && j.id) {
+        Store.update("memories", memId, {
+          driveId: j.id,
+          photoUrl: "https://lh3.googleusercontent.com/d/" + j.id + "=w1000",
+          photoView: "https://drive.google.com/file/d/" + j.id + "/view",
+          photo: ""   // ลบ base64 ออกจากเครื่อง (รูปอยู่บน Drive แล้ว) — ประหยัดพื้นที่
+        });
+      }
+      if (App.route === "diary") render();
+    })
+    .catch(() => { delete _memUploading[memId]; if (App.route === "diary") render(); });
+}
+function migrateMemPhotos() {
+  if (!driveFoldersList().length) return;          // ยังไม่มีโฟลเดอร์ → เก็บเฉพาะเครื่อง
+  if (Object.keys(_memUploading).length) return;   // อัปทีละรูป
+  const m = (Store.data.memories || []).find(x => x.photo && !x.photoUrl);
+  if (m) uploadMemPhotoToDrive(m.id, m.photo);
+}
+
 let memPhoto = "";
 function sheetMemory() {
   memPhoto = "";
+  const hasFolder = driveFoldersList().length > 0;
   openSheet("📸 เพิ่มความทรงจำ", `
+    <div class="small muted" style="margin:-4px 0 10px;text-align:center">${hasFolder ? "📤 รูปจะอัปขึ้น Google Drive อัตโนมัติ เพื่อให้เห็นทุกเครื่อง" : "💡 เพิ่มโฟลเดอร์ Drive ก่อน รูปถึงจะเห็นทุกเครื่อง"}</div>
     <div class="center" style="margin-bottom:14px">
       <label style="cursor:pointer">
         <div id="mem-photo-prev" class="mem-prev">📷<div class="small muted" style="margin-top:4px">แตะเพิ่มรูป</div></div>
@@ -2133,15 +2196,18 @@ function pickMemPhoto(ev) {
 function saveMemory() {
   const title = $("#mem-title").value.trim();
   if (!title) { alert("กรุณาใส่หัวข้อความทรงจำ"); return; }
+  let item;
   try {
-    Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
+    item = Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
   } catch (e) {
     alert("พื้นที่จัดเก็บเต็ม ลองลบรูปเก่าหรือใช้รูปเล็กลง");
     return;
   }
+  const pendingPhoto = memPhoto;
   memPhoto = "";
   closeSheet();
   render();
+  if (pendingPhoto && item) uploadMemPhotoToDrive(item.id, pendingPhoto); // อัปขึ้น Drive → เห็นทุกเครื่อง
 }
 
 /* ==================================================================
