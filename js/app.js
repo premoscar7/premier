@@ -509,7 +509,8 @@ function viewVaccines() {
       ${v.photo ? `<img class="mem-img" src="${v.photo}" alt="">` : ""}
       <div class="flex between" style="align-items:flex-start">
         <h3 style="flex:1">💉 ${esc(v.name)}</h3>
-        <button class="del-btn" onclick="delItem('vaccines','${v.id}')">🗑️</button>
+        <button class="del-btn" onclick="sheetVaccine('${v.id}')" title="แก้ไข">✏️</button>
+        <button class="del-btn" onclick="delItem('vaccines','${v.id}')" title="ลบ">🗑️</button>
       </div>
       <div class="small muted" style="margin:2px 0 4px">📅 ${fmtDateFull(v.date + "T00:00")}${ageTextAtDate(v.date) ? " · อายุ " + ageTextAtDate(v.date) : ""}</div>
       ${v.note ? `<div class="small">📝 ${esc(v.note)}</div>` : ""}
@@ -541,12 +542,16 @@ function viewVaccines() {
 }
 
 let vacPhoto = "";
-function sheetVaccine() {
+let _editVacId = null;
+function sheetVaccine(editId) {
+  _editVacId = editId || null;
   vacPhoto = "";
-  openSheet("💉 บันทึกวัคซีนที่ฉีด", `
+  const v = editId ? (Store.data.vaccines || []).find(x => x.id === editId) : null;
+  const prevPic = v ? (v.photo || "") : "";
+  openSheet(v ? "✏️ แก้ไขวัคซีน" : "💉 บันทึกวัคซีนที่ฉีด", `
     <div class="center" style="margin-bottom:14px">
       <label style="cursor:pointer">
-        <div id="vac-photo-prev" class="mem-prev">📷<div class="small muted" style="margin-top:4px">ถ่าย/แนบรูป<br>(สมุด/สติกเกอร์)</div></div>
+        <div id="vac-photo-prev" class="mem-prev">${prevPic ? `<img src="${prevPic}" alt="">` : `📷<div class="small muted" style="margin-top:4px">ถ่าย/แนบรูป<br>(สมุด/สติกเกอร์)</div>`}</div>
         <input type="file" accept="image/*" style="display:none" onchange="pickVacPhoto(event)">
       </label>
     </div>
@@ -555,10 +560,10 @@ function sheetVaccine() {
         ${VACCINE_NAMES.map(n => `<button class="chip" type="button" onclick="selVacName(this,'${esc(n)}')">${esc(n)}</button>`).join("")}
       </div>
     </label>
-    <label class="field"><span>ชื่อวัคซีน</span><input type="text" id="vac-name" placeholder="เช่น RSV (ENFLONSIA)"></label>
-    <label class="field"><span>วันที่ฉีด</span><input type="date" id="vac-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
-    <label class="field"><span>หมายเหตุ (Lot / รพ. — ไม่บังคับ)</span><input type="text" id="vac-note" placeholder="เช่น Lot A007801"></label>
-    <button class="btn block" onclick="saveVaccine()">💾 บันทึก</button>
+    <label class="field"><span>ชื่อวัคซีน</span><input type="text" id="vac-name" value="${v ? esc(v.name) : ""}" placeholder="เช่น RSV (ENFLONSIA)"></label>
+    <label class="field"><span>วันที่ฉีด</span><input type="date" id="vac-date" value="${v ? esc(v.date) : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>หมายเหตุ (Lot / รพ. — ไม่บังคับ)</span><input type="text" id="vac-note" value="${v ? esc(v.note || "") : ""}" placeholder="เช่น Lot A007801"></label>
+    <button class="btn block" onclick="saveVaccine()">💾 ${v ? "บันทึกการแก้ไข" : "บันทึก"}</button>
   `);
 }
 function selVacName(btn, name) {
@@ -588,8 +593,17 @@ function pickVacPhoto(ev) {
 function saveVaccine() {
   const name = $("#vac-name").value.trim();
   if (!name) { alert("กรุณาใส่ชื่อวัคซีน"); return; }
+  const date = $("#vac-date").value || dayKey(new Date());
+  const note = $("#vac-note").value.trim();
+  if (_editVacId) {                       // ---- โหมดแก้ไข ----
+    const patch = { name, date, note };
+    if (vacPhoto) patch.photo = vacPhoto;  // เปลี่ยนรูปเฉพาะเมื่อเลือกรูปใหม่
+    Store.update("vaccines", _editVacId, patch);
+    _editVacId = null; vacPhoto = "";
+    closeSheet(); render(); return;
+  }
   try {
-    Store.add("vaccines", { name, date: $("#vac-date").value || dayKey(new Date()), note: $("#vac-note").value.trim(), photo: vacPhoto });
+    Store.add("vaccines", { name, date, note, photo: vacPhoto });
   } catch (e) { alert("พื้นที่จัดเก็บเต็ม ลองใช้รูปเล็กลง"); return; }
   vacPhoto = "";
   closeSheet();
@@ -715,7 +729,8 @@ function viewGrowth() {
         <div class="bubble grow">📏</div>
         <div class="body"><div class="t">${x.weight ? x.weight + " กก." : ""}${x.weight && x.height ? " · " : ""}${x.height ? x.height + " ซม." : ""}</div>
           <div class="s">${fmtDateFull(x.date + "T00:00")}${x.head ? " · รอบหัว " + x.head + " ซม." : ""}</div></div>
-        <button class="del-btn" onclick="delItem('growth','${x.id}')">🗑️</button>
+        <button class="del-btn" onclick="sheetGrowth('${x.id}')" title="แก้ไข">✏️</button>
+        <button class="del-btn" onclick="delItem('growth','${x.id}')" title="ลบ">🗑️</button>
       </div>`).join("")}
     </div>
   </div>`;
@@ -1712,29 +1727,7 @@ function viewSync() {
       <button class="btn danger block" onclick="doLogout()">🚪 ออกจากระบบ</button>
     </div>
 
-    <div class="card">
-      <h3>1️⃣ ลิงก์ Google Sheet <span class="small muted">(ทำครั้งเดียวต่อเครื่อง)</span></h3>
-      <p class="small muted">วางลิงก์ Web App ที่ได้จาก Google Apps Script (ดูวิธีทำในคำแนะนำที่แชทส่งให้)</p>
-      <label class="field"><span>Web App URL</span><input type="text" id="sy-url" value="${esc(url)}" placeholder="https://script.google.com/macros/s/.../exec"></label>
-      <button class="btn ghost block" onclick="saveSheetUrl()">💾 บันทึกลิงก์</button>
-    </div>
-
-    <div class="card">
-      <h3>2️⃣ รหัสครอบครัว</h3>
-      <p class="small muted">ตั้งรหัสลับสักคำ แล้วใช้ <b>รหัสเดียวกัน</b> ทั้งมือถือพ่อและแม่ → ข้อมูลจะตรงกัน</p>
-      <label class="field"><span>รหัสครอบครัว</span>
-        <div class="flex gap">
-          <input type="text" id="sy-code" value="${esc(code)}" placeholder="เช่น premier-family-2026" style="flex:1">
-          <button class="btn ghost sm" type="button" onclick="randFamilyCode()" title="สุ่มรหัสเดายาก">🎲</button>
-        </div>
-      </label>
-      ${on
-      ? `<button class="btn danger block" onclick="disconnectSync()">⛔ หยุดซิงค์</button>`
-      : `<button class="btn teal block" onclick="connectSync()">🔗 เชื่อมต่อ & เริ่มซิงค์</button>`}
-    </div>
-
-    ${on ? `<div class="alert"><span class="e">✅</span><div>กำลังซิงค์ด้วยรหัส <b>${esc(code)}</b> — เปิดแอปในมืออีกเครื่อง ใส่ลิงก์+รหัสเดียวกัน ข้อมูลจะตรงกัน</div></div>` : ""}
-    <div class="card small muted">⚠️ ใครที่รู้ลิงก์ Sheet + รหัสครอบครัว จะเข้าถึงข้อมูลได้ จึงควรตั้งรหัสที่เดายากและบอกเฉพาะคนในบ้าน · ข้อมูลยังเก็บในเครื่องด้วย เน็ตหลุดก็ใช้งานต่อได้</div>
+    ${on ? `<div class="alert"><span class="e">✅</span><div>กำลังซิงค์ด้วยรหัส <b>${esc(code)}</b> — เปิดแอปในอีกเครื่อง ล็อกอินด้วยรหัสเดียวกัน ข้อมูลจะตรงกัน</div></div>` : ""}
   </div>`;
 }
 function saveSheetUrl() {
@@ -2420,21 +2413,26 @@ function saveDiaper() {
   closeSheet(); render();
 }
 
-function sheetGrowth() {
-  openSheet("📏 บันทึกการชั่ง/วัด", `
-    <label class="field"><span>วันที่</span><input type="date" id="gr-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+let _editGrowthId = null;
+function sheetGrowth(editId) {
+  _editGrowthId = editId || null;
+  const x = editId ? (Store.data.growth || []).find(g => g.id === editId) : null;
+  openSheet(x ? "✏️ แก้ไขการชั่ง/วัด" : "📏 บันทึกการชั่ง/วัด", `
+    <label class="field"><span>วันที่</span><input type="date" id="gr-date" value="${x ? esc(x.date) : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
     <div class="row2">
-      <label class="field"><span>น้ำหนัก (กก.)</span><input type="number" id="gr-wt" inputmode="decimal" step="0.01" placeholder="เช่น 6.5"></label>
-      <label class="field"><span>ส่วนสูง (ซม.)</span><input type="number" id="gr-ht" inputmode="decimal" step="0.1" placeholder="เช่น 62"></label>
+      <label class="field"><span>น้ำหนัก (กก.)</span><input type="number" id="gr-wt" inputmode="decimal" step="0.01" value="${x ? esc(x.weight || "") : ""}" placeholder="เช่น 6.5"></label>
+      <label class="field"><span>ส่วนสูง (ซม.)</span><input type="number" id="gr-ht" inputmode="decimal" step="0.1" value="${x ? esc(x.height || "") : ""}" placeholder="เช่น 62"></label>
     </div>
-    <label class="field"><span>รอบศีรษะ (ซม.) — ไม่บังคับ</span><input type="number" id="gr-hd" inputmode="decimal" step="0.1" placeholder="เช่น 41"></label>
-    <button class="btn purple block" onclick="saveGrowth()">💾 บันทึก</button>
+    <label class="field"><span>รอบศีรษะ (ซม.) — ไม่บังคับ</span><input type="number" id="gr-hd" inputmode="decimal" step="0.1" value="${x ? esc(x.head || "") : ""}" placeholder="เช่น 41"></label>
+    <button class="btn purple block" onclick="saveGrowth()">💾 ${x ? "บันทึกการแก้ไข" : "บันทึก"}</button>
   `);
 }
 function saveGrowth() {
   const wt = $("#gr-wt").value, ht = $("#gr-ht").value, hd = $("#gr-hd").value;
   if (!wt && !ht) { alert("กรุณาใส่น้ำหนักหรือส่วนสูงอย่างน้อย 1 อย่าง"); return; }
-  Store.add("growth", { date: $("#gr-date").value || dayKey(new Date()), weight: wt, height: ht, head: hd });
+  const data = { date: $("#gr-date").value || dayKey(new Date()), weight: wt, height: ht, head: hd };
+  if (_editGrowthId) { Store.update("growth", _editGrowthId, data); _editGrowthId = null; }
+  else Store.add("growth", data);
   closeSheet(); render();
 }
 
