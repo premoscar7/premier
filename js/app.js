@@ -2023,7 +2023,8 @@ function viewDiary() {
         ${pic ? `<img class="mem-img" src="${pic}" alt="" loading="lazy" onerror="this.style.opacity=0.35">` : ""}
         <div class="flex between" style="align-items:flex-start">
           <h3 style="flex:1">${esc(m.title)}</h3>
-          <button class="del-btn" onclick="delItem('memories','${m.id}')">🗑️</button>
+          <button class="del-btn" onclick="sheetMemory('${m.id}')" title="แก้ไข">✏️</button>
+          <button class="del-btn" onclick="delItem('memories','${m.id}')" title="ลบ">🗑️</button>
         </div>
         <div class="small muted" style="margin:2px 0 6px">📅 ${fmtDateFull(m.date + "T00:00")}${age ? ` · 👶 อายุ ${age}` : ""}</div>
         ${m.note ? `<div style="white-space:pre-wrap">${esc(m.note)}</div>` : ""}
@@ -2247,24 +2248,28 @@ function migrateMemPhotos() {
 }
 
 let memPhoto = "";
-function sheetMemory() {
+let _editMemId = null;
+function sheetMemory(editId) {
+  _editMemId = editId || null;
   memPhoto = "";
-  openSheet("📸 เพิ่มความทรงจำ", `
+  const m = editId ? (Store.data.memories.find(x => x.id === editId) || null) : null;
+  const prevPic = m ? (m.photoUrl || m.photo || "") : "";
+  openSheet(m ? "✏️ แก้ไขความทรงจำ" : "📸 เพิ่มความทรงจำ", `
     <div class="center" style="margin-bottom:14px">
       <label style="cursor:pointer">
-        <div id="mem-photo-prev" class="mem-prev">📷<div class="small muted" style="margin-top:4px">แตะเพิ่มรูป</div></div>
+        <div id="mem-photo-prev" class="mem-prev">${prevPic ? `<img src="${prevPic}" alt="">` : `📷<div class="small muted" style="margin-top:4px">แตะเพิ่มรูป</div>`}</div>
         <input type="file" accept="image/*" style="display:none" onchange="pickMemPhoto(event)">
       </label>
     </div>
     <label class="field"><span>ช่วงเวลาพิเศษ (เลือกด่วน)</span>
       <div class="chips" style="overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">
-        ${MEMORY_IDEAS.map(m => `<button class="chip" style="white-space:nowrap" onclick="selMemTitle(this,'${esc(m)}')">${esc(m)}</button>`).join("")}
+        ${MEMORY_IDEAS.map(mi => `<button class="chip" style="white-space:nowrap" onclick="selMemTitle(this,'${esc(mi)}')">${esc(mi)}</button>`).join("")}
       </div>
     </label>
-    <label class="field"><span>หัวข้อ</span><input type="text" id="mem-title" placeholder="เช่น ยิ้มครั้งแรก 😊"></label>
-    <label class="field"><span>วันที่</span><input type="date" id="mem-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
-    <label class="field"><span>บันทึกความทรงจำ</span><textarea id="mem-note" placeholder="เล่าเรื่องราววันนั้น..."></textarea></label>
-    <button class="btn pink block" onclick="saveMemory()">💾 บันทึกความทรงจำ</button>
+    <label class="field"><span>หัวข้อ</span><input type="text" id="mem-title" value="${m ? esc(m.title) : ""}" placeholder="เช่น ยิ้มครั้งแรก 😊"></label>
+    <label class="field"><span>วันที่</span><input type="date" id="mem-date" value="${m ? esc(m.date) : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>บันทึกความทรงจำ</span><textarea id="mem-note" placeholder="เล่าเรื่องราววันนั้น...">${m ? esc(m.note || "") : ""}</textarea></label>
+    <button class="btn pink block" onclick="saveMemory()">💾 ${m ? "บันทึกการแก้ไข" : "บันทึกความทรงจำ"}</button>
   `);
 }
 function selMemTitle(btn, title) {
@@ -2296,14 +2301,28 @@ function pickMemPhoto(ev) {
 function saveMemory() {
   const title = $("#mem-title").value.trim();
   if (!title) { alert("กรุณาใส่หัวข้อความทรงจำ"); return; }
-  let item;
+  const date = $("#mem-date").value || dayKey(new Date());
+  const note = $("#mem-note").value.trim();
+  const pendingPhoto = memPhoto;
+
+  if (_editMemId) {                       // ---- โหมดแก้ไข ----
+    const patch = { title, date, note };
+    if (pendingPhoto) { patch.photo = pendingPhoto; patch.photoUrl = ""; patch.photoView = ""; _memFailed[_editMemId] = false; } // รูปใหม่ → อัปใหม่
+    Store.update("memories", _editMemId, patch);
+    const id = _editMemId;
+    _editMemId = null; memPhoto = "";
+    closeSheet(); render();
+    if (pendingPhoto && imgbbKey()) uploadMemPhoto(id, pendingPhoto);
+    return;
+  }
+
+  let item;                               // ---- โหมดเพิ่มใหม่ ----
   try {
-    item = Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
+    item = Store.add("memories", { title, date, note, photo: memPhoto });
   } catch (e) {
     alert("พื้นที่จัดเก็บเต็ม ลองลบรูปเก่าหรือใช้รูปเล็กลง");
     return;
   }
-  const pendingPhoto = memPhoto;
   memPhoto = "";
   closeSheet();
   render();

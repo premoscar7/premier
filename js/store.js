@@ -21,6 +21,7 @@ const CHILD_FIELDS = {
   letters: [],        // {id, date, title, body}
   quotes: [],         // {id, date, text, note}
   feeds: [], sleeps: [], diapers: [],  // (เดิม — เก็บไว้เพื่อความเข้ากันได้)
+  del: {},            // tombstone: { itemId: timestamp } — จำว่ารายการไหนถูกลบ (กันซิงค์ดึงกลับ)
 };
 
 function uid() {
@@ -123,6 +124,8 @@ const Store = {
   },
   remove(list, id) {
     this.data[list] = this.data[list].filter(x => x.id !== id);
+    if (!this.data.del) this.data.del = {};
+    this.data.del[id] = Date.now();   // จำว่าถูกลบ → ซิงค์จะไม่ดึงกลับ
     this.save();
   },
 

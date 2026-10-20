@@ -38,8 +38,9 @@ function _syncMergeProfile(a, b) {
 function _syncMergeChild(a, b) {
   const out = { id: a.id || b.id };
   out.profile = _syncMergeProfile(a.profile, b.profile);
+  out.del = Object.assign({}, b.del || {}, a.del || {});   // รวมรายการที่ถูกลบจากทั้งสองเครื่อง
   ["growth", "memories", "sizes", "vaccines", "appointments", "temps", "meds", "shopping", "letters", "quotes", "feeds", "sleeps", "diapers"]
-    .forEach(k => { out[k] = _syncUnionById(a[k], b[k]); });
+    .forEach(k => { out[k] = _syncUnionById(a[k], b[k]).filter(x => x && !out.del[x.id]); }); // ตัดที่ถูกลบออก
   out.teeth = Object.assign({}, b.teeth || {}, a.teeth || {});
   out.milestones = Object.assign({}, b.milestones || {}, a.milestones || {});
   const ah = a.healthInfo || {}, bh = b.healthInfo || {};
