@@ -118,31 +118,14 @@ const Sync = {
   _onSync() { return typeof App !== "undefined" && App.route === "sync"; },
 
   init() {
-    const c = window.BK_CONFIG || {};
+    // ต้องล็อกอินด้วยรหัสครอบครัวก่อน (เซสชันอยู่ได้ 1 สัปดาห์) — ไม่มีแชร์อัตโนมัติแล้ว
     this.url = this.cfg().url;
-    const override = (localStorage.getItem("bk.familyCodeOverride") || "").trim();
-    const isGuest = /(?:[?&#])guest\b/i.test(location.search + location.hash);
-
-    // โหมดแยก (เพื่อนลองใช้) — ใช้รหัสของตัวเอง ไม่ยุ่ง/ไม่เห็นข้อมูลหลัก
-    if (override) {
-      this.code = override;
-      if (this.url) this.connect(this.code, { silent: true });
-      return;
-    }
-    // เปิดลิงก์แบบ ?guest ครั้งแรก → สร้างพื้นที่ใหม่ว่างๆ แยกต่างหาก (ไม่ดึงข้อมูลเจ้าของ)
-    if (isGuest) {
-      const code = "guest-" + Math.random().toString(36).slice(2, 8);
-      try { localStorage.setItem("bk.familyCodeOverride", code); } catch (e) { }
-      try { Store.reset(); } catch (e) { }   // เริ่มจากข้อมูลว่าง — ไม่เห็นของลูกเรา
+    const code = (localStorage.getItem("bk.familyCode") || "").trim();
+    const at = parseInt(localStorage.getItem("bk.loginAt") || "0", 10);
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    const valid = code && at && (Date.now() - at < WEEK);
+    if (valid && this.url) {
       this.code = code;
-      if (this.url) this.connect(this.code, { silent: true });
-      return;
-    }
-    // ปกติ: แชร์อัตโนมัติด้วยรหัสหลัก (ครอบครัวเจ้าของ)
-    const autoShare = !!((c.sheetUrl || "").trim() && (c.familyCode || "").trim());
-    this.code = ((c.familyCode || "").trim()) || localStorage.getItem("bk.familyCode") || "";
-    const on = localStorage.getItem("bk.syncOn") === "1";
-    if (this.url && this.code && (autoShare || on)) {
       this.connect(this.code, { silent: true });
     }
   },

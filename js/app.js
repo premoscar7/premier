@@ -168,7 +168,45 @@ function renderNav() {
      </button>`).join("");
 }
 
+/* ---------------- login gate ---------------- */
+const LOGIN_TTL = 7 * 24 * 60 * 60 * 1000; // อยู่ได้ 1 สัปดาห์
+function isLoggedIn() {
+  try {
+    const code = (localStorage.getItem("bk.familyCode") || "").trim();
+    const at = parseInt(localStorage.getItem("bk.loginAt") || "0", 10);
+    return !!(code && at && (Date.now() - at < LOGIN_TTL));
+  } catch (e) { return false; }
+}
+function viewLogin() {
+  const lastCode = esc((localStorage.getItem("bk.familyCode") || "").trim());
+  return `<div class="screen" style="max-width:420px;margin:0 auto;padding-top:7vh">
+    <div class="center" style="margin-bottom:18px">
+      <div style="font-size:64px;line-height:1">🦒</div>
+      <h1 style="margin:8px 0 2px">Baby <span style="color:var(--pink,#FF6FA5)">Kids</span></h1>
+      <p class="small muted">สมุดบันทึกลูกน้อย</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">🔑 เข้าสู่ระบบ</h3>
+      <p class="small muted">ใส่รหัสครอบครัวเพื่อเข้าถึงข้อมูลของคุณ (พ่อและแม่ใช้รหัสเดียวกัน ข้อมูลจะตรงกันทุกเครื่อง)</p>
+      <label class="field"><span>รหัสครอบครัว</span>
+        <input type="text" id="login-code" value="${lastCode}" placeholder="เช่น ครอบครัว-พรีเมียร์" autocomplete="off" autocapitalize="off"
+          onkeydown="if(event.key==='Enter')doLogin()">
+      </label>
+      <button class="btn teal block" onclick="doLogin()">🔓 เข้าสู่ระบบ</button>
+      <div class="small muted center" style="margin:14px 0 6px">— ยังไม่มีรหัส? —</div>
+      <button class="btn ghost block" onclick="doCreateFamily()">✨ สร้างครอบครัวใหม่ (เริ่มข้อมูลเปล่า)</button>
+    </div>
+    <div class="card small muted">🔒 เข้าสู่ระบบครั้งเดียว อยู่ได้ 1 สัปดาห์ · ข้อมูลเก็บในเครื่อง + คลาวด์ (Google Sheet ฟรี) · ใครรู้รหัสจะเห็นข้อมูลได้ ตั้งรหัสที่เดายากและบอกเฉพาะคนในบ้าน</div>
+  </div>`;
+}
+
 function render() {
+  if (!isLoggedIn()) {
+    appEl().innerHTML = viewLogin();
+    const nav = document.getElementById("nav"); if (nav) nav.innerHTML = "";
+    const fab = document.getElementById("fab"); if (fab) fab.style.display = "none";
+    return;
+  }
   const r = App.route;
   let html = "";
   if (r === "home") html = viewHome();
@@ -1635,29 +1673,22 @@ function viewSync() {
     off: "⚪ ยังไม่ซิงค์", connecting: "🟡 กำลังเชื่อมต่อ…",
     on: "🟢 ซิงค์แล้ว (อัปเดตทุก ~3 วิ)", syncing: "🔵 กำลังอัปเดต…", error: "🔴 เชื่อมต่อมีปัญหา",
   };
-  const cfg = window.BK_CONFIG || {};
-  const autoShare = !!((cfg.sheetUrl || "").trim() && (cfg.familyCode || "").trim());
-  const override = (localStorage.getItem("bk.familyCodeOverride") || "").trim();
-  const guestLink = (typeof location !== "undefined" ? location.origin : "") + "/?guest";
+  const myCode = (localStorage.getItem("bk.familyCode") || "").trim();
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>🔄 ซิงค์ข้อมูลพ่อแม่</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
 
-    ${override ? `<div class="alert" style="background:#fff3cd;border-color:#ffe08a;color:#6b5600"><span class="e">🧪</span><div><b>โหมดทดลอง (ข้อมูลแยก)</b><br>เครื่องนี้ใช้ข้อมูลชุดของตัวเอง (รหัส <b>${esc(override)}</b>) — ไม่ปนและไม่เห็นข้อมูลหลักของครอบครัว<br><button class="btn ghost sm" style="margin-top:8px" onclick="exitTrialMode()">↩️ กลับไปข้อมูลหลัก</button></div></div>` : ""}
-
-    ${!override ? `<div class="card">
-      <h3>👥 ให้คนอื่นลองใช้ (ข้อมูลแยก)</h3>
-      <p class="small muted">ส่งลิงก์นี้ให้เพื่อน เปิดแล้วจะได้<b>พื้นที่เปล่าของตัวเอง</b> — ไม่เห็นข้อมูลลูกเรา และไม่ปนกัน</p>
-      <label class="field"><span>ลิงก์สำหรับเพื่อน</span><input type="text" id="guest-link" readonly value="${esc(guestLink)}" onclick="this.select()"></label>
-      <button class="btn teal block" onclick="copyGuestLink()">📋 คัดลอกลิงก์ให้เพื่อน</button>
-    </div>` : ""}
-
     <div class="ai-card" style="background:linear-gradient(135deg,#2BB3AA,#4ECDC4)">
       <h3>☁️ ข้อมูลตรงกันทุกเครื่อง</h3>
-      <p>ให้มือถือพ่อและแม่เห็นข้อมูลเดียวกัน — กดบันทึกที่เครื่องหนึ่ง อีกเครื่องเห็นภายในไม่กี่วินาที เก็บข้อมูลไว้ใน Google Sheet ของคุณเอง (ฟรี)</p>
+      <p>เข้าสู่ระบบด้วยรหัสครอบครัวเดียวกันทั้งพ่อและแม่ → กดบันทึกที่เครื่องหนึ่ง อีกเครื่องเห็นภายในไม่กี่วินาที (เก็บใน Google Sheet ฟรี)</p>
       <span class="tag">สถานะ: ${statusMap[S.status] || "—"}</span>
     </div>
 
-    ${autoShare ? `<div class="alert"><span class="e">🔗</span><div><b>เปิดแชร์อัตโนมัติไว้แล้ว</b> — ทุกคนที่เปิดลิงก์เว็บนี้จะเห็นข้อมูลชุดเดียวกันแบบเรียลไทม์โดยไม่ต้องตั้งค่า (แม่แค่เปิดลิงก์ก็เห็นเลย) · ด้านล่างไว้สำหรับปรับแต่งเองเท่านั้น</div></div>` : ""}
+    <div class="card">
+      <h3>👨‍👩‍👧 บัญชีครอบครัว</h3>
+      <p class="small muted">เข้าสู่ระบบด้วยรหัส <b>${esc(myCode) || "—"}</b></p>
+      <p class="small muted">อยากให้คนอื่นลองใช้แบบแยกข้อมูล → ให้เค้ากด "สร้างครอบครัวใหม่" ตอนเข้าแอป แล้วตั้งรหัสของตัวเอง ข้อมูลจะไม่ปนกัน</p>
+      <button class="btn danger block" onclick="doLogout()">🚪 ออกจากระบบ</button>
+    </div>
 
     <div class="card">
       <h3>1️⃣ ลิงก์ Google Sheet <span class="small muted">(ทำครั้งเดียวต่อเครื่อง)</span></h3>
@@ -1692,28 +1723,45 @@ function saveSheetUrl() {
 function connectSync() {
   Sync.saveUrl($("#sy-url").value);
   const code = ($("#sy-code").value || "").trim();
-  // ถ้าอยู่โหมดทดลอง (แยกข้อมูล) → อัปเดตรหัสแยกให้คงอยู่ตอนเปิดใหม่ด้วย
-  if ((localStorage.getItem("bk.familyCodeOverride") || "").trim() && code) {
-    try { localStorage.setItem("bk.familyCodeOverride", code); } catch (e) { }
-  }
+  if (code) { try { localStorage.setItem("bk.loginAt", String(Date.now())); } catch (e) { } }
   Sync.connect(code);
 }
 function disconnectSync() {
   if (confirm("หยุดซิงค์กับคลาวด์? (ข้อมูลในเครื่องนี้ยังอยู่ครบ)")) Sync.disconnect();
 }
-function copyGuestLink() {
-  const link = (typeof location !== "undefined" ? location.origin : "") + "/?guest";
-  const el = $("#guest-link"); if (el) el.select();
-  (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
-    .then(() => alert("คัดลอกลิงก์แล้ว! ส่งให้เพื่อนเปิดได้เลย 👍\n\n" + link))
-    .catch(() => { try { document.execCommand("copy"); alert("คัดลอกลิงก์แล้ว 👍\n\n" + link); } catch (e) { alert("ลิงก์ให้เพื่อน:\n" + link); } });
+
+/* ============================ ล็อกอิน (รหัสครอบครัว) ============================ */
+function doLogin() {
+  const code = ($("#login-code").value || "").trim();
+  if (!code) { alert("กรุณาใส่รหัสครอบครัว"); return; }
+  const prev = (localStorage.getItem("bk.familyCode") || "").trim();
+  if (prev && prev !== code) { try { Store.reset(); } catch (e) { } } // สลับครอบครัว → เริ่มสด
+  try {
+    localStorage.setItem("bk.familyCode", code);
+    localStorage.setItem("bk.loginAt", String(Date.now()));
+  } catch (e) { }
+  if (typeof Sync !== "undefined" && Sync.cfg().url) Sync.connect(code);
+  else go("home");
 }
-function exitTrialMode() {
-  if (!confirm("กลับไปใช้ข้อมูลหลักของครอบครัว?\n(ข้อมูลชุดทดลองในเครื่องนี้จะถูกล้างออกจากเครื่อง)")) return;
-  try { localStorage.removeItem("bk.familyCodeOverride"); } catch (e) { }
+function doCreateFamily() {
+  let code = prompt("ตั้งรหัสครอบครัวใหม่ (จำง่ายๆ ใช้ทั้งพ่อและแม่)\nเช่น ครอบครัว-พรีเมียร์-2026", "");
+  if (code === null) return;
+  code = (code || "").trim();
+  if (!code) { alert("กรุณาตั้งรหัสครอบครัว"); return; }
+  if (!confirm('สร้างครอบครัวใหม่ด้วยรหัส "' + code + '"?\nเริ่มจากข้อมูลเปล่า (ข้อมูลเดิมในเครื่องนี้จะถูกล้าง)')) return;
   try { Store.reset(); } catch (e) { }
-  const def = ((window.BK_CONFIG || {}).familyCode || "").trim();
-  if (def && typeof Sync !== "undefined") Sync.connect(def); else render();
+  try {
+    localStorage.setItem("bk.familyCode", code);
+    localStorage.setItem("bk.loginAt", String(Date.now()));
+  } catch (e) { }
+  if (typeof Sync !== "undefined" && Sync.cfg().url) Sync.connect(code);
+  else go("home");
+}
+function doLogout() {
+  if (!confirm("ออกจากระบบ? ต้องใส่รหัสครอบครัวอีกครั้งเพื่อเข้าใช้\n(ข้อมูลในคลาวด์ยังอยู่ครบ)")) return;
+  try { localStorage.removeItem("bk.loginAt"); } catch (e) { }
+  if (typeof Sync !== "undefined") { try { Sync.disconnect(); } catch (e) { } }
+  render(); // → หน้าล็อกอิน
 }
 function randFamilyCode() {
   const name = (Store.data.profile.name || "baby").replace(/\s+/g, "").toLowerCase().slice(0, 8) || "baby";
