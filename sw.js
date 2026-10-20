@@ -1,5 +1,5 @@
 /* Baby Kids — service worker (offline cache) */
-const CACHE = "babykids-v17";
+const CACHE = "babykids-v19";
 const ASSETS = [
   "./",
   "index.html",
@@ -28,11 +28,22 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
-  // network-first for HTML so updates show, cache-first for assets
-  if (req.mode === "navigate") {
-    e.respondWith(fetch(req).catch(() => caches.match("index.html")));
+  const url = new URL(req.url);
+  const sameOrigin = url.origin === self.location.origin;
+  // network-first สำหรับหน้าเว็บ + ไฟล์โค้ด (js/css/manifest) → เห็นตัวใหม่ทันทีเมื่อออนไลน์
+  const codeFile = sameOrigin && /\.(js|css|webmanifest)$/.test(url.pathname);
+
+  if (req.mode === "navigate" || codeFile) {
+    e.respondWith(
+      fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+        return res;
+      }).catch(() => caches.match(req).then((c) => c || caches.match("index.html")))
+    );
     return;
   }
+  // อื่นๆ (รูป/ไอคอน/ฟอนต์) → cache-first เพื่อความเร็ว + ใช้ออฟไลน์ได้
   e.respondWith(
     caches.match(req).then((cached) => cached || fetch(req).then((res) => {
       const copy = res.clone();

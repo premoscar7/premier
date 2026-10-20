@@ -251,6 +251,10 @@ function viewHome() {
 
     ${growthDashboard()}
 
+    ${vaccineCard()}
+
+    ${insuranceCard()}
+
     ${dev.homeCard}
 
     ${upcoming ? `
@@ -382,8 +386,60 @@ function daysUntil(dateStr) {
 function upcomingAppt() {
   const today = dayKey(new Date());
   return Store.data.appointments
-    .filter(a => !a.done && a.date >= today)
+    .filter(a => !a.done && !a.isVaccine && a.date >= today)  // วัคซีนมีการ์ดของตัวเอง
     .sort((a, b) => a.date.localeCompare(b.date))[0];
+}
+function vShort(title) { return String(title || "").replace(/^วัคซีน:\s*/, ""); }
+
+/* ---- การ์ดวัคซีนบนแดชบอร์ด ---- */
+function vaccineCard() {
+  if (!Store.data.profile.birthDate) return "";
+  const today = dayKey(new Date());
+  const vaccines = Store.data.appointments.filter(a => a.isVaccine);
+
+  if (vaccines.length === 0) {
+    return `<div class="section-title">💉 วัคซีน</div>
+      <div class="card center" style="cursor:pointer" onclick="genVaccines()">
+        <div style="font-size:30px">💉</div>
+        <div class="t" style="font-weight:700">สร้างตารางวัคซีนตามเกณฑ์</div>
+        <div class="small muted">แตะเพื่อสร้างนัดวัคซีนอัตโนมัติจากวันเกิด</div>
+      </div>`;
+  }
+
+  const done = vaccines.filter(v => v.done).sort((a, b) => b.date.localeCompare(a.date));
+  const next = vaccines.filter(v => !v.done).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const lastDone = done[0];
+  const overdue = next && next.date < today;
+
+  return `<div class="section-title">💉 วัคซีน <span class="small muted" style="font-weight:400">· ฉีดแล้ว ${done.length}/${vaccines.length} เข็ม</span></div>
+    <div class="card" onclick="go('appt')" style="cursor:pointer">
+      ${next ? `<div class="flex between" style="gap:10px">
+        <div style="flex:1;min-width:0">
+          <div class="small muted">💉 เข็มถัดไป</div>
+          <div class="t" style="font-weight:700">${esc(vShort(next.title))}</div>
+          <div class="s" style="color:${overdue ? "var(--red)" : "var(--ink-soft)"}">${fmtDateFull(next.date + "T00:00")}</div>
+        </div>
+        <div class="badge" style="background:${overdue ? "var(--red)" : "var(--teal-d)"};color:#fff;white-space:nowrap;align-self:center">${daysUntil(next.date)}</div>
+      </div>` : `<div class="center" style="padding:6px 0"><div style="font-size:26px">🎉</div><div class="t" style="font-weight:700">ฉีดครบตามตารางแล้ว!</div></div>`}
+      ${lastDone ? `<div class="small muted" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:8px">✅ ล่าสุด: ${esc(vShort(lastDone.title))} · ${fmtDate(lastDone.date)}</div>` : ""}
+    </div>`;
+}
+
+/* ---- การ์ดประกันบนแดชบอร์ด ---- */
+function insuranceCard() {
+  const h = Store.data.healthInfo || {};
+  if (!h.insCompany && !h.insNo) return "";
+  const exp = h.insExpiry ? ` · หมดอายุ ${fmtDate(h.insExpiry)}` : "";
+  return `<div class="section-title">🛡️ ประกัน</div>
+    <div class="card" onclick="go('healthcard')" style="cursor:pointer">
+      <div class="list-item" style="padding:0">
+        <div class="bubble" style="background:#EAF6FF">🛡️</div>
+        <div class="body"><div class="t">${esc(h.insCompany || "ประกันสุขภาพ")}</div>
+          <div class="s">${h.insNo ? "กรมธรรม์ " + esc(h.insNo) : ""}${h.insPlan ? " · " + esc(h.insPlan) : ""}${exp}</div>
+          ${h.insHospital ? `<div class="s">🏥 ${esc(h.insHospital)}</div>` : ""}</div>
+        <div class="time">›</div>
+      </div>
+    </div>`;
 }
 
 /* ==================================================================
@@ -629,6 +685,22 @@ function viewHealthCard() {
         <label class="field"><span>เบอร์ฉุกเฉิน</span><input type="tel" id="hc-emgphone" value="${esc(h.emgPhone || "")}" placeholder="08x-xxx-xxxx"></label>
       </div>
       <label class="field"><span>แพทย์ / โรงพยาบาลประจำ</span><input type="text" id="hc-hospital" value="${esc(h.hospital || "")}" placeholder="เช่น รพ. ... / พญ. ..."></label>
+
+      <div style="border-top:2px solid var(--line);margin:4px 0 12px;padding-top:12px">
+        <h3>🛡️ ประกัน</h3>
+        <p class="small muted" style="margin:2px 0 8px">ข้อมูลประกันสุขภาพ/ชีวิตของลูก (จะแสดงบนหน้าแรกด้วย)</p>
+        <label class="field"><span>บริษัทประกัน</span><input type="text" id="hc-inscompany" value="${esc(h.insCompany || "")}" placeholder="เช่น AIA, เมืองไทยประกันชีวิต"></label>
+        <div class="row2">
+          <label class="field"><span>เลขกรมธรรม์</span><input type="text" id="hc-insno" value="${esc(h.insNo || "")}" placeholder="เลขที่..."></label>
+          <label class="field"><span>แผน/ประเภท</span><input type="text" id="hc-insplan" value="${esc(h.insPlan || "")}" placeholder="เช่น IPD/OPD"></label>
+        </div>
+        <div class="row2">
+          <label class="field"><span>รพ.คู่สัญญา</span><input type="text" id="hc-inshospital" value="${esc(h.insHospital || "")}" placeholder="เช่น รพ. ..."></label>
+          <label class="field"><span>วันหมดอายุ/ต่ออายุ</span><input type="date" id="hc-insexpiry" value="${h.insExpiry || ""}"></label>
+        </div>
+        <label class="field"><span>เบอร์ติดต่อประกัน</span><input type="tel" id="hc-insphone" value="${esc(h.insPhone || "")}" placeholder="เช่น 1581"></label>
+      </div>
+
       <label class="field"><span>หมายเหตุอื่นๆ</span><textarea id="hc-note" placeholder="ข้อมูลเพิ่มเติม">${esc(h.note || "")}</textarea></label>
       <button class="btn block" onclick="saveHealthCard()">💾 บันทึกบัตรสุขภาพ</button>
     </div>
@@ -644,6 +716,12 @@ function saveHealthCard() {
     emgPhone: $("#hc-emgphone").value.trim(),
     hospital: $("#hc-hospital").value.trim(),
     note: $("#hc-note").value.trim(),
+    insCompany: $("#hc-inscompany").value.trim(),
+    insNo: $("#hc-insno").value.trim(),
+    insPlan: $("#hc-insplan").value.trim(),
+    insHospital: $("#hc-inshospital").value.trim(),
+    insExpiry: $("#hc-insexpiry").value,
+    insPhone: $("#hc-insphone").value.trim(),
   };
   Store.save();
   alert("บันทึกบัตรสุขภาพแล้ว 💛");
@@ -1118,7 +1196,7 @@ function viewMore() {
   const maxTemp = todayTemps.length ? Math.max(...todayTemps.map(t => +t.value)) : null;
   const teethN = Object.keys(Store.data.teeth || {}).length;
   const hi = Store.data.healthInfo || {};
-  const hasCard = hi.blood || hi.allergy || hi.condition || hi.emgPhone;
+  const hasCard = hi.blood || hi.allergy || hi.condition || hi.emgPhone || hi.insCompany;
   const latestSize = [...Store.data.sizes].sort((a, b) => b.date.localeCompare(a.date))[0];
   const menu = [
     ["timeline", "📅", "ไทม์ไลน์การเติบโต", "ดูเรื่องราวการเติบโตทั้งหมด"],
@@ -1126,7 +1204,7 @@ function viewMore() {
     ["quotes", "💬", "คำพูดน่ารักของลูก", (Store.data.quotes || []).length ? `${Store.data.quotes.length} ประโยค` : "เก็บคำพูด/เรื่องขำไว้"],
     ["teeth", "🦷", "ผังฟันน้ำนม", teethN ? `ขึ้นแล้ว ${teethN}/20 ซี่` : "บันทึกฟันที่ขึ้นแต่ละซี่"],
     ["sizes", "👕", "ไซส์เสื้อผ้า-รองเท้า", latestSize ? `ล่าสุด ${[latestSize.clothing && "เสื้อ " + latestSize.clothing, latestSize.shoe && "รองเท้า " + latestSize.shoe].filter(Boolean).join(" · ") || "บันทึกแล้ว"}` : "จดไซส์ปัจจุบันไว้ตอนซื้อของ"],
-    ["healthcard", "🩺", "บัตรสุขภาพ", hasCard ? "ดู/แก้ไขข้อมูลสุขภาพ" : "กรุ๊ปเลือด แพ้ยา/อาหาร เบอร์ฉุกเฉิน"],
+    ["healthcard", "🩺", "บัตรสุขภาพ & ประกัน", hasCard ? "ดู/แก้ไขข้อมูลสุขภาพ & ประกัน" : "กรุ๊ปเลือด แพ้ยา/อาหาร ประกัน เบอร์ฉุกเฉิน"],
     ["health", "🌡️", "สุขภาพ (ไข้ & ยา)", maxTemp ? `ไข้วันนี้สูงสุด ${maxTemp}°C` : "บันทึกอุณหภูมิ & ยา/วิตามิน"],
     ["appt", "💉", "นัดหมอ & วัคซีน", `${apptLeft} นัดที่กำลังจะถึง`],
     ["shopping", "🛒", "ของต้องซื้อให้ลูก", `เหลือ ${shopLeft} รายการ`],
