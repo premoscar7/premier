@@ -15,9 +15,13 @@ const Sync = {
   _onSync() { return typeof App !== "undefined" && App.route === "sync"; },
 
   init() {
-    this.code = localStorage.getItem("bk.familyCode") || "";
+    const c = window.BK_CONFIG || {};
+    // ถ้าฝังค่าไว้ในโค้ด (sheetUrl + familyCode) → แชร์อัตโนมัติให้ทุกคนที่เปิดลิงก์
+    const autoShare = !!((c.sheetUrl || "").trim() && (c.familyCode || "").trim());
+    this.code = ((c.familyCode || "").trim()) || localStorage.getItem("bk.familyCode") || "";
     this.url = this.cfg().url;
-    if (localStorage.getItem("bk.syncOn") === "1" && this.code && this.url) {
+    const on = localStorage.getItem("bk.syncOn") === "1";
+    if (this.url && this.code && (autoShare || on)) {
       this.connect(this.code, { silent: true });
     }
   },

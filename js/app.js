@@ -47,6 +47,12 @@ function ageText() { const a = ageData(); return a ? ageTextFrom(a.birth) : ""; 
 /* ---- อายุแก้ไข (corrected age) สำหรับเด็กคลอดก่อนกำหนด ---- */
 function prematureDays() {
   const p = Store.data.profile;
+  // 1) ถ้ามีวันครบกำหนดคลอด (EDD) ใช้ค่านี้ก่อน (แม่นสุด)
+  if (p.dueDate && p.birthDate) {
+    const diff = Math.round((new Date(p.dueDate) - new Date(p.birthDate)) / 86400000);
+    return diff > 0 ? diff : 0;
+  }
+  // 2) ไม่งั้นคำนวณจากอายุครรภ์ตอนคลอด
   const w = +p.gestWeeks || 0, d = +p.gestDays || 0;
   if (!w || w >= 40) return 0;
   const days = 40 * 7 - (w * 7 + d);
@@ -62,6 +68,8 @@ function correctedBirth() {
   const bd = Store.data.profile.birthDate; if (!bd) return null;
   const birth = new Date(bd);
   if (monthsBetween(birth, new Date()) >= 24) return birth; // เลิกแก้ไขเมื่ออายุจริง ≥ 2 ปี
+  const p = Store.data.profile;
+  if (p.dueDate) { const due = new Date(p.dueDate); if (due > birth) return due; }
   const d = new Date(birth); d.setDate(d.getDate() + prematureDays());
   return d;
 }
@@ -224,8 +232,9 @@ function viewHome() {
         ${avatar}
         <div style="flex:1">
           <h2>${esc(p.name || "ลูกน้อย")}</h2>
-          <div class="age">🎂 อายุ ${ageText()}${isPreterm() ? "" : " · " + stage.label}</div>
-          ${isPreterm() ? `<div class="age" style="font-size:13px;opacity:.92">✨ อายุแก้ไข ${correctedAgeText()} · เกิด ${esc(String(p.gestWeeks))}w${esc(String(p.gestDays || 0))}d</div>` : ""}
+          <div class="age">🎂 อายุ${isPreterm() ? "จริง" : ""} ${ageText()}${isPreterm() ? "" : " · " + stage.label}</div>
+          ${isPreterm() ? `<div class="age" style="font-size:13px;opacity:.92">✨ อายุแก้ไข ${correctedAgeText()}</div>
+          <div class="age" style="font-size:12px;opacity:.85">🍼 เกิด ${fmtDate(p.birthDate)}${p.dueDate ? ` · ครบกำหนด ${fmtDate(p.dueDate)}` : ""}</div>` : ""}
         </div>
       </div>
     </div>
@@ -1233,8 +1242,10 @@ function viewProfile() {
       <label class="field"><span>วันเกิด</span><input type="date" id="pf-birth" value="${p.birthDate}" max="${dayKey(new Date())}"></label>
 
       <div class="field" style="margin-bottom:8px">
-        <span style="font-size:14px;font-weight:600">คลอดก่อนกำหนด? (ไม่บังคับ)</span>
-        <div class="small muted" style="margin:2px 0 8px">ใส่อายุครรภ์ตอนคลอด เพื่อให้แอปคำนวณ "อายุแก้ไข" ที่ใช้กับเกณฑ์พัฒนาการ/น้ำหนัก (เว้นว่างถ้าครบกำหนด)</div>
+        <span style="font-size:14px;font-weight:600">👶 คลอดก่อนกำหนด? (ไม่บังคับ)</span>
+        <div class="small muted" style="margin:2px 0 8px">ใส่ <b>วันครบกำหนดคลอด</b> เพื่อให้แอปคำนวณ "อายุแก้ไข" ที่ใช้กับเกณฑ์พัฒนาการ/น้ำหนัก (เว้นว่างถ้าคลอดตรงกำหนด)</div>
+        <label class="field"><span>วันครบกำหนดคลอด (EDD)</span><input type="date" id="pf-due" value="${p.dueDate || ""}"></label>
+        <div class="small muted" style="margin:-6px 0 8px">หรือใส่เป็นอายุครรภ์ตอนคลอดแทนก็ได้:</div>
         <div class="row2">
           <label class="field" style="margin-bottom:0"><span>อายุครรภ์ (สัปดาห์)</span><input type="number" id="pf-gw" inputmode="numeric" min="20" max="42" value="${p.gestWeeks || ""}" placeholder="เช่น 33"></label>
           <label class="field" style="margin-bottom:0"><span>+ วัน</span><input type="number" id="pf-gd" inputmode="numeric" min="0" max="6" value="${p.gestDays || ""}" placeholder="เช่น 4"></label>
@@ -1252,6 +1263,7 @@ function setGender(g) {
   if (birthEl && birthEl.value) patch.birthDate = birthEl.value;
   if ($("#pf-gw")) patch.gestWeeks = $("#pf-gw").value;
   if ($("#pf-gd")) patch.gestDays = $("#pf-gd").value;
+  if ($("#pf-due")) patch.dueDate = $("#pf-due").value;
   Store.setProfile(patch);
   go("profile");
 }
@@ -1285,7 +1297,8 @@ function saveProfile() {
   if (!birth) { alert("กรุณาใส่วันเกิดของลูกน้อย"); return; }
   const gw = $("#pf-gw") ? $("#pf-gw").value : "";
   const gd = $("#pf-gd") ? $("#pf-gd").value : "";
-  Store.setProfile({ name, birthDate: birth, gestWeeks: gw, gestDays: gd });
+  const due = $("#pf-due") ? $("#pf-due").value : "";
+  Store.setProfile({ name, birthDate: birth, gestWeeks: gw, gestDays: gd, dueDate: due });
   alert("บันทึกเรียบร้อย 💛");
   go("home");
 }
@@ -1448,6 +1461,8 @@ function viewSync() {
     off: "⚪ ยังไม่ซิงค์", connecting: "🟡 กำลังเชื่อมต่อ…",
     on: "🟢 ซิงค์แล้ว (อัปเดตทุก ~3 วิ)", syncing: "🔵 กำลังอัปเดต…", error: "🔴 เชื่อมต่อมีปัญหา",
   };
+  const cfg = window.BK_CONFIG || {};
+  const autoShare = !!((cfg.sheetUrl || "").trim() && (cfg.familyCode || "").trim());
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>🔄 ซิงค์ข้อมูลพ่อแม่</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
 
@@ -1456,6 +1471,8 @@ function viewSync() {
       <p>ให้มือถือพ่อและแม่เห็นข้อมูลเดียวกัน — กดบันทึกที่เครื่องหนึ่ง อีกเครื่องเห็นภายในไม่กี่วินาที เก็บข้อมูลไว้ใน Google Sheet ของคุณเอง (ฟรี)</p>
       <span class="tag">สถานะ: ${statusMap[S.status] || "—"}</span>
     </div>
+
+    ${autoShare ? `<div class="alert"><span class="e">🔗</span><div><b>เปิดแชร์อัตโนมัติไว้แล้ว</b> — ทุกคนที่เปิดลิงก์เว็บนี้จะเห็นข้อมูลชุดเดียวกันแบบเรียลไทม์โดยไม่ต้องตั้งค่า (แม่แค่เปิดลิงก์ก็เห็นเลย) · ด้านล่างไว้สำหรับปรับแต่งเองเท่านั้น</div></div>` : ""}
 
     <div class="card">
       <h3>1️⃣ ลิงก์ Google Sheet <span class="small muted">(ทำครั้งเดียวต่อเครื่อง)</span></h3>
