@@ -1917,9 +1917,13 @@ function viewDiary() {
       const photoBlock = pic ? (m.photoView ? `<a href="${m.photoView}" target="_blank" rel="noopener">${imgTag}</a>` : imgTag) : "";
       let syncNote = "";
       if (m.photo && !m.photoUrl) {
-        syncNote = hasFolder
-          ? `<div class="small muted" style="margin-top:6px">⬆️ ${_memUploading[m.id] ? "กำลังซิงค์รูปขึ้น Drive…" : "รอซิงค์รูปขึ้น Drive…"}</div>`
-          : `<div class="small muted" style="margin-top:6px">📁 เพิ่มโฟลเดอร์ Drive เพื่อให้รูปนี้เห็นทุกเครื่อง</div>`;
+        if (_memBlocked || _memFailed[m.id]) {
+          syncNote = `<div class="small" style="margin-top:6px;color:#e08">⚠️ อัปรูปขึ้น Drive ไม่ได้ — เปิดสิทธิ์ Drive ใน Apps Script ก่อน</div>`;
+        } else if (hasFolder) {
+          syncNote = `<div class="small muted" style="margin-top:6px">⬆️ ${_memUploading[m.id] ? "กำลังซิงค์รูปขึ้น Drive…" : "รอซิงค์รูปขึ้น Drive…"}</div>`;
+        } else {
+          syncNote = `<div class="small muted" style="margin-top:6px">📁 เพิ่มโฟลเดอร์ Drive เพื่อให้รูปนี้เห็นทุกเครื่อง</div>`;
+        }
       }
       return `<div class="card mem-card">
         ${photoBlock}
@@ -1989,8 +1993,8 @@ function driveSection() {
     return `<button class="card" onclick="App.driveOpen=true;render()" style="display:flex;align-items:center;gap:12px;width:100%;text-align:left;cursor:pointer">
         <span style="font-size:30px;line-height:1">📁</span>
         <span style="flex:1;min-width:0">
-          <span style="display:block;font-weight:700">รูป/วิดีโอจาก Google Drive</span>
-          <span class="small muted">${folders.length > 1 ? folders.length + " โฟลเดอร์ · " : ""}${sub}</span>
+          <span style="display:block;font-weight:700">${esc(active.label)}</span>
+          <span class="small muted">Google Drive · ${folders.length > 1 ? folders.length + " โฟลเดอร์ · " : ""}${sub}</span>
         </span>
         <span style="font-size:20px;color:var(--muted)">▸</span>
       </button>`;
@@ -2006,7 +2010,7 @@ function driveSection() {
     </a>`).join("")}</div>`;
 
   return `<div class="flex between" style="align-items:center">
-      <div class="section-title" style="margin:0">📁 รูป/วิดีโอจาก Google Drive</div>
+      <div class="section-title" style="margin:0">📁 ${esc(active.label)}</div>
       <button class="btn ghost sm" onclick="App.driveOpen=false;render()">▾ ย่อ</button>
     </div>
     ${folders.length > 1 ? `<div class="chips" style="margin:8px 0;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">
@@ -2113,15 +2117,15 @@ function removeDriveFolder(i) {
 }
 
 /* ---- อัปรูปความทรงจำขึ้น Drive อัตโนมัติ → ซิงค์เห็นทุกเครื่อง ---- */
-let _memUploading = {};
-function uploadMemPhotoToDrive(memId, dataUrl) {
+let _memUploading = {}, _memFailed = {}, _memBlocked = false;
+function uploadMemPhotoToDrive(memId, dataUrl, fromMigrate) {
   const url = (typeof Sync !== "undefined") ? Sync.cfg().url : "";
   const folders = driveFoldersList();
   if (!url || !folders.length || !dataUrl || _memUploading[memId]) return;
   const b64 = (dataUrl.split(",")[1]) || "";
   if (!b64) return;
   _memUploading[memId] = true;
-  if (App.route === "diary") render();
+  if (!fromMigrate && App.route === "diary") render();
   fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "upload", folder: folders[0].id, name: "memory-" + Date.now() + ".jpg", mime: "image/jpeg", dataB64: b64 }) })
     .then(r => r.json()).then(j => {
       delete _memUploading[memId];
@@ -2132,16 +2136,23 @@ function uploadMemPhotoToDrive(memId, dataUrl) {
           photoView: "https://drive.google.com/file/d/" + j.id + "/view",
           photo: ""   // ลบ base64 ออกจากเครื่อง (รูปอยู่บน Drive แล้ว) — ประหยัดพื้นที่
         });
+        if (App.route === "diary") render();
+      } else {
+        _memFailed[memId] = true;                    // รูปนี้ล้มเหลว → ไม่วนลองใหม่ (กันค้าง/กระพริบ)
+        const err = (j && j.error) || "";
+        if (/DriveApp|อนุญาต|permission|auth/i.test(err)) _memBlocked = true; // ยังไม่เปิดสิทธิ์ → หยุดอัปอัตโนมัติทั้งหมด
+        if (!fromMigrate) { alert("อัปรูปขึ้น Drive ไม่สำเร็จ: " + (err || "ลองใหม่ หรือเปิดสิทธิ์ Drive ก่อน")); if (App.route === "diary") render(); }
+        else if (App.route === "diary") render();
       }
-      if (App.route === "diary") render();
     })
-    .catch(() => { delete _memUploading[memId]; if (App.route === "diary") render(); });
+    .catch(() => { delete _memUploading[memId]; _memFailed[memId] = true; if (!fromMigrate && App.route === "diary") render(); });
 }
 function migrateMemPhotos() {
-  if (!driveFoldersList().length) return;          // ยังไม่มีโฟลเดอร์ → เก็บเฉพาะเครื่อง
-  if (Object.keys(_memUploading).length) return;   // อัปทีละรูป
-  const m = (Store.data.memories || []).find(x => x.photo && !x.photoUrl);
-  if (m) uploadMemPhotoToDrive(m.id, m.photo);
+  if (_memBlocked) return;                           // ยังไม่เปิดสิทธิ์ Drive → ไม่ลองวน
+  if (!driveFoldersList().length) return;            // ยังไม่มีโฟลเดอร์ → เก็บเฉพาะเครื่อง
+  if (Object.keys(_memUploading).length) return;     // อัปทีละรูป
+  const m = (Store.data.memories || []).find(x => x.photo && !x.photoUrl && !_memFailed[x.id]);
+  if (m) uploadMemPhotoToDrive(m.id, m.photo, true);
 }
 
 let memPhoto = "";
