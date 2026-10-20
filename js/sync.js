@@ -1,8 +1,51 @@
 /* ============================================================
    Sync — ซิงค์ข้อมูลพ่อ-แม่ ผ่าน Google Sheet (Apps Script Web App)
-   เก็บข้อมูลทั้งก้อนไว้ 1 แถว ต่อ 1 "รหัสครอบครัว" (last-write-wins)
-   ซิงค์แบบ near-realtime ด้วยการ poll ทุก ~3 วินาที + push ทันทีเมื่อแก้
+   รวมข้อมูล (merge) ระหว่างเครื่อง — ไม่ทับกัน เพื่อกันข้อมูลหาย
+   ซิงค์แบบ near-realtime ด้วยการ poll ทุก ~3 วินาที + push เมื่อแก้
    ============================================================ */
+
+/* ---- รวม 2 ชุดข้อมูล โดยไม่ทำให้ข้อมูลหาย (union arrays by id) ---- */
+function _syncUnionById(a, b) {
+  const out = Array.isArray(a) ? a.slice() : [];
+  const seen = new Set(out.map(x => x && x.id));
+  (Array.isArray(b) ? b : []).forEach(x => { if (x && x.id && !seen.has(x.id)) { out.push(x); seen.add(x.id); } });
+  return out;
+}
+function _syncMergeProfile(a, b) {
+  a = a || {}; b = b || {};
+  const out = {}; const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach(k => {
+    const av = a[k], bv = b[k];
+    out[k] = (av === undefined || av === "" || av === null) ? bv : av; // เครื่องนี้ชนะ แต่ถ้าว่างใช้ของคลาวด์
+  });
+  return out;
+}
+function _syncMergeChild(a, b) {
+  const out = { id: a.id || b.id };
+  out.profile = _syncMergeProfile(a.profile, b.profile);
+  ["growth", "memories", "sizes", "appointments", "temps", "meds", "shopping", "letters", "quotes", "feeds", "sleeps", "diapers"]
+    .forEach(k => { out[k] = _syncUnionById(a[k], b[k]); });
+  out.teeth = Object.assign({}, b.teeth || {}, a.teeth || {});
+  out.milestones = Object.assign({}, b.milestones || {}, a.milestones || {});
+  const ah = a.healthInfo || {}, bh = b.healthInfo || {};
+  out.healthInfo = Object.keys(ah).some(k => ah[k]) ? ah : bh;
+  return out;
+}
+function mergeSnapshots(local, remote) {
+  if (!remote || !Array.isArray(remote.children)) return local;
+  if (!local || !Array.isArray(local.children)) return remote;
+  const lById = {}; local.children.forEach(c => lById[c.id] = c);
+  const rById = {}; remote.children.forEach(c => rById[c.id] = c);
+  const ids = [];
+  local.children.forEach(c => { if (!ids.includes(c.id)) ids.push(c.id); });
+  remote.children.forEach(c => { if (!ids.includes(c.id)) ids.push(c.id); });
+  const children = ids.map(id => {
+    const l = lById[id], r = rById[id];
+    return (l && r) ? _syncMergeChild(l, r) : (l || r);
+  });
+  return { v: 2, children, _seeded: !!(local._seeded || remote._seeded) };
+}
+
 const Sync = {
   url: "", code: "", ready: false, applying: false, status: "off",
   _timer: null, _poll: null, _lastJSON: "",
@@ -58,28 +101,18 @@ const Sync = {
       return;
     }
 
-    const localHas = this.hasData(Store.snapshot());
-    if (remote && this.hasData(remote)) {
-      const same = JSON.stringify(remote) === JSON.stringify(Store.snapshot());
-      if (!opts.silent && localHas && !same) {
-        const useCloud = confirm(
-          "พบข้อมูลในคลาวด์อยู่แล้ว (จากอีกเครื่อง)\n\n" +
-          "• กด “ตกลง” = ใช้ข้อมูลจากคลาวด์ (ข้อมูลในเครื่องนี้จะถูกแทนที่)\n" +
-          "• กด “ยกเลิก” = ส่งข้อมูลเครื่องนี้ขึ้นแทนข้อมูลในคลาวด์"
-        );
-        if (useCloud) this.applyRemote(remote);
-        else await this._push(true);
-      } else {
-        this.applyRemote(remote);
-      }
-    } else {
-      await this._push(true); // คลาวด์ยังว่าง → อัปข้อมูลเครื่องนี้ขึ้นเป็นตัวตั้งต้น
-    }
+    // รวมข้อมูลเครื่องนี้กับคลาวด์ (ไม่ทับกัน — กันข้อมูลหาย) แล้วอัปผลลัพธ์ขึ้น
+    const merged = mergeSnapshots(Store.snapshot(), remote);
+    this.applying = true;
+    Store.applySnapshot(merged);
+    this.applying = false;
+    this._lastJSON = remote ? JSON.stringify(remote) : "";
 
     this.ready = true;
     this.status = "on";
     localStorage.setItem("bk.familyCode", code);
     localStorage.setItem("bk.syncOn", "1");
+    await this._push(true); // ส่งข้อมูลที่รวมแล้วขึ้นคลาวด์
     this._startPoll();
     if (typeof render === "function") render();
   },
@@ -101,13 +134,16 @@ const Sync = {
   },
 
   applyRemote(data) {
-    const incoming = JSON.stringify(data);
-    if (incoming === JSON.stringify(Store.snapshot())) return;
+    this._lastJSON = JSON.stringify(data);
+    const merged = mergeSnapshots(Store.snapshot(), data);
+    const mergedStr = JSON.stringify(merged);
+    if (mergedStr === JSON.stringify(Store.snapshot())) return; // ไม่มีอะไรใหม่
     this.applying = true;
-    Store.applySnapshot(data);
+    Store.applySnapshot(merged);
     this.applying = false;
-    this._lastJSON = incoming;
     if (typeof render === "function") render();
+    // ถ้าผลรวมมีมากกว่าที่คลาวด์มี → ส่งขึ้นให้คลาวด์ตามทัน
+    if (mergedStr !== this._lastJSON) this.schedulePush();
   },
 
   schedulePush() {
