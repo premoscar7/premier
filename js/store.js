@@ -6,7 +6,7 @@ const KEY = "babykids.v1";
 
 /* ฟิลด์ข้อมูลของลูก 1 คน */
 const CHILD_FIELDS = {
-  profile: { name: "", gender: "boy", birthDate: "", photo: "", dadHeight: "", momHeight: "", gestWeeks: "", gestDays: "", dueDate: "", driveFolder: "" },
+  profile: { name: "", gender: "boy", birthDate: "", photo: "", dadHeight: "", momHeight: "", gestWeeks: "", gestDays: "", dueDate: "", driveFolder: "", driveFolders: [] },
   growth: [],        // {id, date, weight, height, head}
   milestones: {},    // { milestoneId: {done, date} }
   shopping: [],       // {id, name, cat, qty, bought}

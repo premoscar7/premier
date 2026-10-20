@@ -4,7 +4,7 @@
 Store.load();
 Store.seedIfNeeded();
 
-const App = { route: "home", msCheckpoint: null, chartType: "weight" };
+const App = { route: "home", msCheckpoint: null, chartType: "weight", driveActiveFolder: 0, _driveCache: {}, _driveUploading: false };
 
 /* ---------------- helpers ---------------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -1942,41 +1942,145 @@ function extractDriveFolderId(s) {
   if (/^[A-Za-z0-9_-]{15,}$/.test(s)) return s;
   return "";
 }
+function driveFoldersList() {
+  const p = Store.data.profile;
+  let folders = Array.isArray(p.driveFolders) ? p.driveFolders.slice() : [];
+  if (!folders.length && p.driveFolder) folders = [{ label: "รูป/วิดีโอ", id: p.driveFolder }];
+  return folders;
+}
 function driveSection() {
-  const drive = Store.data.profile.driveFolder || "";
-  if (drive) {
-    return `<div class="section-title">📁 รูป/วิดีโอจาก Google Drive</div>
-      <div class="card" style="padding:12px">
-        <iframe class="drive-embed" src="https://drive.google.com/embeddedfolderview?id=${esc(drive)}#grid" loading="lazy"></iframe>
-        <div class="flex between gap mt">
-          <a class="btn ghost sm" href="https://drive.google.com/drive/folders/${esc(drive)}" target="_blank" rel="noopener">↗ เปิดใน Drive</a>
-          <button class="btn ghost sm" onclick="changeDriveFolder()">⚙️ เปลี่ยน/ยกเลิก</button>
-        </div>
-        <div class="small muted mt">ดรอปรูป/วิดีโอในโฟลเดอร์นี้ที่ Google Drive → ขึ้นที่นี่อัตโนมัติ ไม่ต้องอัปซ้ำ 💛</div>
+  const url = (typeof Sync !== "undefined") ? Sync.cfg().url : "";
+  if (!url) {
+    return `<div class="section-title">📁 Google Drive</div>
+      <div class="card small muted">ตั้งค่าซิงค์ก่อน (เพิ่มเติม → 🔄 ซิงค์ข้อมูลพ่อแม่) ถึงจะเชื่อม/อัปรูป Google Drive ได้</div>`;
+  }
+  const folders = driveFoldersList();
+  if (!folders.length) {
+    return `<div class="section-title">📁 เชื่อม Google Drive</div>
+      <div class="card">
+        <p class="small muted">เพิ่มโฟลเดอร์รูป/วิดีโอจาก Google Drive มาโชว์ที่นี่ (เช่น "0-1 ขวบ") — เพิ่มได้หลายโฟลเดอร์</p>
+        <label class="field"><span>ชื่อโฟลเดอร์ (เช่น 0-1 ขวบ)</span><input type="text" id="df-label" placeholder="0-1 ขวบ"></label>
+        <label class="field"><span>ลิงก์โฟลเดอร์ Google Drive</span><input type="text" id="df-url" placeholder="วางลิงก์โฟลเดอร์..."></label>
+        <button class="btn teal block" onclick="addDriveFolder()">🔗 เพิ่มโฟลเดอร์</button>
+        <div class="alert mt"><span class="e">⚠️</span><div>ที่ Drive คลิกขวาโฟลเดอร์ → แชร์ → ตั้งเป็น <b>"ใครก็ตามที่มีลิงก์ · ผู้อ่าน"</b> · และต้องอัปเดตโค้ด Apps Script เป็นเวอร์ชันใหม่ด้วย</div></div>
       </div>`;
   }
-  return `<div class="section-title">📁 เชื่อม Google Drive</div>
-    <div class="card">
-      <p class="small muted">มีโฟลเดอร์รูป/วิดีโอลูกใน Google Drive อยู่แล้ว? เชื่อมมาโชว์ที่นี่เลย — ดรอปไฟล์ใน Drive แล้วขึ้นในแอปอัตโนมัติ ไม่ต้องอัปซ้ำ</p>
-      <label class="field"><span>ลิงก์โฟลเดอร์ Google Drive</span><input type="text" id="drive-url" placeholder="วางลิงก์โฟลเดอร์ (เช่น 0-1 ขวบ)"></label>
-      <button class="btn teal block" onclick="saveDriveFolder()">🔗 เชื่อมโฟลเดอร์</button>
-      <div class="alert mt"><span class="e">⚠️</span><div>ก่อนเชื่อม: ที่ Google Drive คลิกขวาโฟลเดอร์ → แชร์ → ตั้งเป็น <b>"ใครก็ตามที่มีลิงก์ · ผู้อ่าน"</b> รูปถึงจะแสดงได้</div></div>
+  const idx = Math.min(App.driveActiveFolder || 0, folders.length - 1);
+  const active = folders[idx];
+  if (!App._driveCache[active.id]) setTimeout(() => loadDriveGallery(active.id), 30);
+  const cache = App._driveCache[active.id];
+
+  let grid;
+  if (!cache || cache.loading) grid = `<div class="center muted small" style="padding:22px">⏳ กำลังโหลดรูปจาก Drive...</div>`;
+  else if (cache.error) grid = `<div class="center muted small" style="padding:16px">⚠️ ${esc(cache.error)}</div>`;
+  else if (!cache.files.length) grid = `<div class="center muted small" style="padding:16px">ยังไม่มีรูป/วิดีโอในโฟลเดอร์นี้<br>แตะ "⬆️ อัปรูป" หรือเพิ่มใน Google Drive ได้เลย</div>`;
+  else grid = `<div class="drive-grid">${cache.files.map(f => `<a class="drive-item" href="${f.view}" target="_blank" rel="noopener" title="${esc(f.name)}">
+      <img src="${f.thumb}" loading="lazy" alt="" onerror="this.style.opacity=0.3">
+      ${f.type === "video" ? '<span class="drive-play">▶</span>' : ""}
+    </a>`).join("")}</div>`;
+
+  return `<div class="section-title">📁 รูป/วิดีโอจาก Google Drive</div>
+    ${folders.length > 1 ? `<div class="chips" style="margin-bottom:8px;overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px">
+      ${folders.map((f, i) => `<button class="chip ${i === idx ? "active" : ""}" style="white-space:nowrap" onclick="App.driveActiveFolder=${i};render()">${esc(f.label)}</button>`).join("")}
+    </div>` : ""}
+    <div class="card" style="padding:12px">
+      ${grid}
+      <div class="flex between gap mt">
+        <button class="btn teal sm" onclick="uploadDriveFile('${active.id}')">${App._driveUploading ? "⏳ กำลังอัป..." : "⬆️ อัปรูปขึ้น Drive"}</button>
+        <div class="flex gap">
+          <a class="btn ghost sm" href="https://drive.google.com/drive/folders/${active.id}" target="_blank" rel="noopener">↗ เปิด Drive</a>
+          <button class="btn ghost sm" onclick="loadDriveGallery('${active.id}',true)" title="รีเฟรช">🔄</button>
+          <button class="btn ghost sm" onclick="manageDriveFolders()" title="จัดการโฟลเดอร์">⚙️</button>
+        </div>
+      </div>
     </div>`;
 }
-function saveDriveFolder() {
-  const id = extractDriveFolderId($("#drive-url").value);
-  if (!id) { alert("ลิงก์ไม่ถูกต้อง — กรุณาวางลิงก์โฟลเดอร์ Google Drive"); return; }
-  Store.setProfile({ driveFolder: id });
+function loadDriveGallery(folderId, force) {
+  if (!folderId) return;
+  const url = (typeof Sync !== "undefined") ? Sync.cfg().url : "";
+  if (!url) return;
+  const cache = App._driveCache[folderId];
+  if (cache && !force && (cache.files || cache.loading)) return;
+  App._driveCache[folderId] = { loading: true };
+  if (force && App.route === "diary") render();
+  fetch(url + "?action=drive&folder=" + encodeURIComponent(folderId) + "&t=" + Date.now())
+    .then(r => r.json())
+    .then(j => {
+      if (j.error) App._driveCache[folderId] = { files: null, error: j.error };
+      else if (!Array.isArray(j.files)) App._driveCache[folderId] = { files: null, error: "ต้องอัปเดตโค้ด Apps Script เป็นเวอร์ชันใหม่ก่อน (ดูไฟล์ในแชท)" };
+      else App._driveCache[folderId] = { files: j.files };
+      if (App.route === "diary") render();
+    })
+    .catch(e => { App._driveCache[folderId] = { files: null, error: "โหลดไม่ได้ — ตรวจการแชร์โฟลเดอร์" }; if (App.route === "diary") render(); });
+}
+function uploadDriveFile(folderId) {
+  const url = (typeof Sync !== "undefined") ? Sync.cfg().url : "";
+  if (!url) { alert("ยังไม่ได้ตั้งค่าซิงค์"); return; }
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = "image/*";
+  input.onchange = () => {
+    const file = input.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const maxD = 1600; let w = img.width, h = img.height;
+        if (w > h && w > maxD) { h = h * maxD / w; w = maxD; } else if (h > maxD) { w = w * maxD / h; h = maxD; }
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        const b64 = c.toDataURL("image/jpeg", 0.85).split(",")[1];
+        App._driveUploading = true; if (App.route === "diary") render();
+        fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "upload", folder: folderId, name: "baby-" + Date.now() + ".jpg", mime: "image/jpeg", dataB64: b64 }) })
+          .then(r => r.json()).then(j => {
+            App._driveUploading = false;
+            if (j && j.ok) { loadDriveGallery(folderId, true); }
+            else { alert("อัปไม่สำเร็จ: " + ((j && j.error) || "ตรวจว่าอัปเดต Apps Script แล้ว")); if (App.route === "diary") render(); }
+          }).catch(err => { App._driveUploading = false; alert("อัปไม่สำเร็จ: " + err); if (App.route === "diary") render(); });
+      };
+      img.onerror = () => alert("เปิดรูปไม่สำเร็จ");
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+function addDriveFolder() {
+  const label = ($("#df-label").value || "").trim() || "โฟลเดอร์";
+  const id = extractDriveFolderId($("#df-url").value);
+  if (!id) { alert("ลิงก์โฟลเดอร์ไม่ถูกต้อง"); return; }
+  const folders = driveFoldersList(); folders.push({ label, id });
+  Store.setProfile({ driveFolders: folders, driveFolder: "" });
+  App.driveActiveFolder = folders.length - 1;
   render();
 }
-function changeDriveFolder() {
-  const url = prompt("วางลิงก์โฟลเดอร์ Google Drive ใหม่\n(เว้นว่างแล้วกด OK เพื่อยกเลิกการเชื่อม):", "");
-  if (url === null) return;
-  if (url.trim() === "") { Store.setProfile({ driveFolder: "" }); render(); return; }
-  const id = extractDriveFolderId(url);
+function manageDriveFolders() {
+  const folders = driveFoldersList();
+  openSheet("⚙️ จัดการโฟลเดอร์ Drive", `
+    ${folders.length ? folders.map((f, i) => `<div class="list-item">
+      <div class="bubble milk">📁</div>
+      <div class="body"><div class="t">${esc(f.label)}</div></div>
+      <button class="del-btn" onclick="removeDriveFolder(${i})">🗑️</button>
+    </div>`).join("") : '<div class="small muted">ยังไม่มีโฟลเดอร์</div>'}
+    <div class="section-title">➕ เพิ่มโฟลเดอร์ใหม่</div>
+    <label class="field"><span>ชื่อ (เช่น 1-2 ขวบ)</span><input type="text" id="df-label2" placeholder="1-2 ขวบ"></label>
+    <label class="field"><span>ลิงก์โฟลเดอร์</span><input type="text" id="df-url2" placeholder="วางลิงก์โฟลเดอร์..."></label>
+    <button class="btn teal block" onclick="addDriveFolder2()">➕ เพิ่ม</button>
+    <div class="small muted mt">⚠️ แชร์โฟลเดอร์เป็น "ทุกคนที่มีลิงก์ · ผู้อ่าน" ก่อนนะครับ</div>
+  `);
+}
+function addDriveFolder2() {
+  const label = ($("#df-label2").value || "").trim() || "โฟลเดอร์";
+  const id = extractDriveFolderId($("#df-url2").value);
   if (!id) { alert("ลิงก์ไม่ถูกต้อง"); return; }
-  Store.setProfile({ driveFolder: id });
-  render();
+  const folders = driveFoldersList(); folders.push({ label, id });
+  Store.setProfile({ driveFolders: folders, driveFolder: "" });
+  closeSheet(); render();
+}
+function removeDriveFolder(i) {
+  const folders = driveFoldersList(); folders.splice(i, 1);
+  Store.setProfile({ driveFolders: folders });
+  if (App.driveActiveFolder >= folders.length) App.driveActiveFolder = 0;
+  closeSheet(); render();
 }
 
 let memPhoto = "";

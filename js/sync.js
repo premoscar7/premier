@@ -64,6 +64,18 @@ function _syncSortDeep(x) {
 }
 function _syncCanon(snap) { try { return JSON.stringify(_syncSortDeep(snap)); } catch (e) { return ""; } }
 
+/* ---- ตัดรูป base64 ออกก่อนซิงค์ (กันเกินลิมิตช่อง Google Sheet) — รูปใช้ Drive แทน ---- */
+function _syncLite(snap) {
+  var s;
+  try { s = JSON.parse(JSON.stringify(snap || { v: 2, children: [] })); } catch (e) { return { v: 2, children: [] }; }
+  (s.children || []).forEach(function (c) {
+    if (c.profile) c.profile.photo = "";
+    (c.memories || []).forEach(function (m) { if (m) m.photo = ""; });
+    (c.vaccines || []).forEach(function (v) { if (v) v.photo = ""; });
+  });
+  return s;
+}
+
 const Sync = {
   url: "", code: "", ready: false, applying: false, status: "off",
   _timer: null, _poll: null, _lastCanon: "",
@@ -95,7 +107,7 @@ const Sync = {
   },
   async _post() {
     // ใช้ content-type text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
-    const body = JSON.stringify({ code: this.code, data: Store.snapshot() });
+    const body = JSON.stringify({ code: this.code, data: _syncLite(Store.snapshot()) });
     const r = await fetch(this.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
     if (!r.ok) throw new Error("HTTP " + r.status);
     return await r.json();
@@ -156,7 +168,7 @@ const Sync = {
         const remote = j && j.data;
         if (remote) {
           const rc = _syncCanon(remote);
-          if (rc !== _syncCanon(Store.snapshot()) && rc !== this._lastCanon) this.applyRemote(remote);
+          if (rc !== _syncCanon(_syncLite(Store.snapshot())) && rc !== this._lastCanon) this.applyRemote(remote);
           else this._lastCanon = rc;
         }
         if (this.status === "error") { this.status = "on"; if (this._onSync()) render(); }
@@ -165,10 +177,10 @@ const Sync = {
   },
 
   applyRemote(data) {
-    this._lastCanon = _syncCanon(data);
-    const localCanon = _syncCanon(Store.snapshot());
+    this._lastCanon = _syncCanon(data); // data จากคลาวด์เป็น lite อยู่แล้ว
+    const localCanon = _syncCanon(_syncLite(Store.snapshot()));
     const merged = mergeSnapshots(Store.snapshot(), data);
-    const mergedCanon = _syncCanon(merged);
+    const mergedCanon = _syncCanon(_syncLite(merged));
     if (mergedCanon === localCanon) {
       // เครื่องนี้มีครบแล้ว — ถ้าคลาวด์ยังไม่ครบ ค่อยส่งขึ้นให้ตามทัน
       if (mergedCanon !== this._lastCanon) this.schedulePush();
@@ -191,7 +203,7 @@ const Sync = {
 
   async _push(silent) {
     if (!this.url || !this.code) return;
-    const canon = _syncCanon(Store.snapshot());
+    const canon = _syncCanon(_syncLite(Store.snapshot()));
     if (canon === this._lastCanon) { this.status = "on"; return; }
     try {
       await this._post();
