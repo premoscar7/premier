@@ -33,9 +33,8 @@ function ageData() {
   const days = Math.floor((now - birth) / 86400000);
   return { months: Math.max(0, months), days, birth };
 }
-function ageText() {
-  const a = ageData(); if (!a) return "";
-  const birth = a.birth, now = new Date();
+function ageTextFrom(birth) {
+  const now = new Date();
   let y = now.getFullYear() - birth.getFullYear(), m = now.getMonth() - birth.getMonth(), d = now.getDate() - birth.getDate();
   if (d < 0) { m--; d += new Date(now.getFullYear(), now.getMonth(), 0).getDate(); }
   if (m < 0) { y--; m += 12; }
@@ -43,9 +42,35 @@ function ageText() {
   if (m > 0) return `${m} เดือน ${d} วัน`;
   return `${d} วัน`;
 }
+function ageText() { const a = ageData(); return a ? ageTextFrom(a.birth) : ""; }
+
+/* ---- อายุแก้ไข (corrected age) สำหรับเด็กคลอดก่อนกำหนด ---- */
+function prematureDays() {
+  const p = Store.data.profile;
+  const w = +p.gestWeeks || 0, d = +p.gestDays || 0;
+  if (!w || w >= 40) return 0;
+  const days = 40 * 7 - (w * 7 + d);
+  return days > 0 ? days : 0;
+}
+function isPreterm() { return prematureDays() > 0; }
+function monthsBetween(birth, now) {
+  let m = (now.getFullYear() - birth.getFullYear()) * 12 + (now.getMonth() - birth.getMonth());
+  if (now.getDate() < birth.getDate()) m--;
+  return Math.max(0, m);
+}
+function correctedBirth() {
+  const bd = Store.data.profile.birthDate; if (!bd) return null;
+  const birth = new Date(bd);
+  if (monthsBetween(birth, new Date()) >= 24) return birth; // เลิกแก้ไขเมื่ออายุจริง ≥ 2 ปี
+  const d = new Date(birth); d.setDate(d.getDate() + prematureDays());
+  return d;
+}
+function correctedMonths() { const cb = correctedBirth(); return cb ? monthsBetween(cb, new Date()) : 0; }
+function correctedAgeText() { const cb = correctedBirth(); return cb ? ageTextFrom(cb) : ""; }
+
 function ageMonthsAt(dateStr) {
-  const bd = Store.data.profile.birthDate; if (!bd) return 0;
-  return (new Date(dateStr) - new Date(bd)) / (86400000 * 30.4375);
+  const cb = correctedBirth(); if (!cb) return 0;
+  return (new Date(dateStr) - cb) / (86400000 * 30.4375);
 }
 
 /* ---------------- หน้าน้องตามวัย ---------------- */
@@ -120,15 +145,15 @@ function whoStatus(type, value, month, gender) {
    ================================================================== */
 const TABS = [
   { id: "home", icon: "🏠", label: "หน้าหลัก" },
-  { id: "log", icon: "📒", label: "บันทึก" },
   { id: "growth", icon: "📈", label: "เติบโต" },
   { id: "dev", icon: "🎯", label: "พัฒนาการ" },
+  { id: "diary", icon: "📸", label: "ความทรงจำ" },
   { id: "more", icon: "🧸", label: "เพิ่มเติม" },
 ];
 function go(route) { App.route = route; render(); window.scrollTo(0, 0); }
 
 function renderNav() {
-  const activeTab = ["shopping", "appt", "profile", "settings", "health", "summary", "diary", "sync"].includes(App.route) ? "more" : App.route;
+  const activeTab = ["shopping", "appt", "profile", "settings", "health", "teeth", "healthcard", "sync", "timeline", "sizes", "letters", "quotes", "children"].includes(App.route) ? "more" : App.route;
   document.getElementById("nav").innerHTML = TABS.map(t =>
     `<button class="${t.id === activeTab ? "active" : ""}" onclick="go('${t.id}')">
        <span class="ne">${t.icon}</span><span>${t.label}</span>
@@ -139,7 +164,6 @@ function render() {
   const r = App.route;
   let html = "";
   if (r === "home") html = viewHome();
-  else if (r === "log") html = viewLog();
   else if (r === "growth") html = viewGrowth();
   else if (r === "dev") html = viewDev();
   else if (r === "more") html = viewMore();
@@ -148,13 +172,19 @@ function render() {
   else if (r === "profile") html = viewProfile();
   else if (r === "settings") html = viewSettings();
   else if (r === "health") html = viewHealth();
-  else if (r === "summary") html = viewSummary();
   else if (r === "diary") html = viewDiary();
+  else if (r === "teeth") html = viewTeeth();
+  else if (r === "healthcard") html = viewHealthCard();
   else if (r === "sync") html = viewSync();
+  else if (r === "timeline") html = viewTimeline();
+  else if (r === "sizes") html = viewSizes();
+  else if (r === "letters") html = viewLetters();
+  else if (r === "quotes") html = viewQuotes();
+  else if (r === "children") html = viewChildren();
   appEl().innerHTML = html;
   renderNav();
   document.getElementById("fab").style.display =
-    ["profile", "settings", "summary", "sync"].includes(r) ? "none" : "grid";
+    ["profile", "settings", "sync", "teeth", "healthcard", "timeline"].includes(r) ? "none" : "grid";
 }
 
 /* ==================================================================
@@ -177,16 +207,6 @@ function viewHome() {
   const p = Store.data.profile;
   if (!p.birthDate) return topbar() + onboarding();
 
-  const a = ageData();
-  const today = dayKey(new Date());
-  const feedsToday = Store.data.feeds.filter(f => dayKey(f.time) === today);
-  const diapersToday = Store.data.diapers.filter(d => dayKey(d.time) === today);
-  const peeToday = diapersToday.filter(d => d.type === "pee" || d.type === "both").length;
-  const poopToday = diapersToday.filter(d => d.type === "poop" || d.type === "both").length;
-  const sleepsToday = Store.data.sleeps.filter(s => dayKey(s.start) === today);
-  const sleepMs = sleepsToday.reduce((sum, s) => sum + (s.end ? (new Date(s.end) - new Date(s.start)) : 0), 0);
-  const lastFeed = Store.data.feeds[0];
-
   const inner = p.photo ? `<img src="${p.photo}" alt="">` : babyFace();
   const avatar = `<div class="avatar-wrap" onclick="triggerPhoto()" title="แตะเพื่อเปลี่ยนรูป">
       <div class="avatar">${inner}</div><span class="cam-badge">📷</span>
@@ -199,32 +219,28 @@ function viewHome() {
   return topbar() + `
   <div class="screen">
     <div class="hero">
+      <span class="floaty f1">✨</span><span class="floaty f2">⭐</span><span class="floaty f3">💫</span><span class="floaty f4">✨</span>
       <div class="hero-row">
         ${avatar}
-        <div>
+        <div style="flex:1">
           <h2>${esc(p.name || "ลูกน้อย")}</h2>
-          <div class="age">🎂 อายุ ${ageText()} · ${stage.label}</div>
+          <div class="age">🎂 อายุ ${ageText()}${isPreterm() ? "" : " · " + stage.label}</div>
+          ${isPreterm() ? `<div class="age" style="font-size:13px;opacity:.92">✨ อายุแก้ไข ${correctedAgeText()} · เกิด ${esc(String(p.gestWeeks))}w${esc(String(p.gestDays || 0))}d</div>` : ""}
         </div>
       </div>
     </div>
 
-    <div class="section-title">⚡ บันทึกด่วน</div>
-    <div class="quick-grid">
-      <button class="quick milk" onclick="sheetFeed()"><span class="e">🍼</span>กินนม</button>
-      <button class="quick sleep" onclick="sheetSleep()"><span class="e">😴</span>การนอน</button>
-      <button class="quick diaper" onclick="sheetDiaper()"><span class="e">💩</span>ผ้าอ้อม</button>
-      <button class="quick grow" onclick="sheetGrowth()"><span class="e">📏</span>ชั่ง/วัด</button>
-    </div>
-
     ${feverAlertHome()}
 
-    <div class="section-title">📊 วันนี้</div>
-    <div class="stat-grid">
-      <div class="stat"><div class="label">🍼 มื้อนม</div><div class="value">${feedsToday.length} <small>มื้อ</small></div></div>
-      <div class="stat"><div class="label">😴 นอนรวม</div><div class="value">${sleepMs ? dur(sleepMs).split(" ")[0] : 0} <small>${sleepMs ? dur(sleepMs).replace(/^\S+\s/, "") : "ชม."}</small></div></div>
-      <div class="stat"><div class="label">💩 ผ้าอ้อม (ครั้ง)</div><div class="value" style="font-size:21px">💧 ${peeToday} <small style="color:var(--ink-soft)">·</small> 💩 ${poopToday}</div></div>
-      <div class="stat"><div class="label">⏰ นมล่าสุด</div><div class="value" style="font-size:18px">${lastFeed ? fmtTime(lastFeed.time) : "—"}</div></div>
+    <div class="section-title">⚡ ทางลัด</div>
+    <div class="quick-grid">
+      <button class="quick grow" onclick="sheetGrowth()"><span class="e">📏</span>ชั่ง/วัด</button>
+      <button class="quick milk" onclick="sheetMemory()"><span class="e">📸</span>ความทรงจำ</button>
+      <button class="quick diaper" onclick="go('teeth')"><span class="e">🦷</span>ฟันน้ำนม</button>
+      <button class="quick sleep" onclick="go('health')"><span class="e">🌡️</span>สุขภาพ</button>
     </div>
+
+    ${growthDashboard()}
 
     ${dev.homeCard}
 
@@ -246,6 +262,76 @@ function viewHome() {
       <div class="small muted mt">ผ่านแล้ว ${dev.done}/${dev.total} ข้อ · แตะเพื่อดูทั้งหมด</div>
     </div>
   </div>`;
+}
+
+/* ---- แดชบอร์ดการเติบโตบนหน้าหลัก ---- */
+function growthDashboard() {
+  const gAll = [...Store.data.growth].sort((a, b) => a.date.localeCompare(b.date));
+  const teethN = Object.keys(Store.data.teeth || {}).length;
+  const memN = Store.data.memories.length;
+  if (gAll.length === 0) {
+    return `<div class="section-title">📊 แดชบอร์ด</div>
+      <div class="card center" style="cursor:pointer" onclick="sheetGrowth()">
+        <div style="font-size:34px">📏</div>
+        <div class="t" style="font-weight:700">บันทึกน้ำหนัก-ส่วนสูงครั้งแรก</div>
+        <div class="small muted">แตะเพื่อเริ่มดูแดชบอร์ดการเติบโต</div>
+      </div>${miniCounts(teethN, memN)}`;
+  }
+  const last = gAll[gAll.length - 1], prev = gAll[gAll.length - 2], first = gAll[0];
+  const gender = Store.data.profile.gender;
+  const wt = +last.weight || 0, ht = +last.height || 0;
+  const m = ageMonthsAt(last.date);
+  const wStat = wt ? whoStatus("wt", wt, m, gender) : null;
+  const hStat = ht ? whoStatus("ht", ht, m, gender) : null;
+  const wDelta = (prev && prev.weight && last.weight) ? +(+last.weight - +prev.weight).toFixed(2) : null;
+  const hDelta = (prev && prev.height && last.height) ? +(+last.height - +prev.height).toFixed(1) : null;
+  const wGain = (first && first.weight && last.weight && first !== last) ? +(+last.weight - +first.weight).toFixed(2) : null;
+  const hGain = (first && first.height && last.height && first !== last) ? +(+last.height - +first.height).toFixed(1) : null;
+  const wSeries = gAll.map(x => +x.weight).filter(v => v > 0);
+
+  return `<div class="section-title">📊 แดชบอร์ดการเติบโต</div>
+    <div class="dash-grid">
+      <div class="dash-card" onclick="go('growth')">
+        <div class="dash-top"><span>⚖️ น้ำหนัก</span>${wStat ? `<span class="dash-pct">${wStat.emoji}</span>` : ""}</div>
+        <div class="dash-val">${last.weight || "—"} <small>กก.</small></div>
+        ${wDelta != null ? deltaBadge(wDelta, "กก.") : ""}
+        ${wGain != null ? `<div class="dash-sub">ตั้งแต่เริ่มบันทึก ${wGain >= 0 ? "+" : ""}${wGain} กก.</div>` : ""}
+        ${wStat ? `<div class="dash-sub">${wStat.status} · กลางวัยนี้ ~${wStat.p50.toFixed(1)} กก.</div>` : ""}
+      </div>
+      <div class="dash-card" onclick="go('growth')">
+        <div class="dash-top"><span>📏 ส่วนสูง</span>${hStat ? `<span class="dash-pct">${hStat.emoji}</span>` : ""}</div>
+        <div class="dash-val">${last.height || "—"} <small>ซม.</small></div>
+        ${hDelta != null ? deltaBadge(hDelta, "ซม.") : ""}
+        ${hGain != null ? `<div class="dash-sub">ตั้งแต่เริ่มบันทึก ${hGain >= 0 ? "+" : ""}${hGain} ซม.</div>` : ""}
+        ${hStat ? `<div class="dash-sub">${hStat.status} · กลางวัยนี้ ~${hStat.p50.toFixed(0)} ซม.</div>` : ""}
+      </div>
+    </div>
+    ${wSeries.length >= 2 ? `<div class="card" onclick="go('growth')" style="cursor:pointer">
+      <div class="flex between"><h3 style="font-size:16px">📈 แนวโน้มน้ำหนัก</h3><span class="small muted">${gAll.length} ครั้ง</span></div>
+      ${sparkline(wSeries, "var(--orange-d)")}
+    </div>` : ""}
+    ${miniCounts(teethN, memN)}`;
+}
+function miniCounts(teethN, memN) {
+  return `<div class="stat-grid">
+    <div class="stat" onclick="go('teeth')" style="cursor:pointer"><div class="label">🦷 ฟันน้ำนม</div><div class="value">${teethN} <small>/ 20 ซี่</small></div></div>
+    <div class="stat" onclick="go('diary')" style="cursor:pointer"><div class="label">📸 ความทรงจำ</div><div class="value">${memN} <small>โมเมนต์</small></div></div>
+  </div>`;
+}
+function deltaBadge(d, unit) {
+  if (d == null || d === 0) return `<span class="delta flat">± 0 ${unit}</span>`;
+  const up = d > 0;
+  return `<span class="delta ${up ? "up" : "down"}">${up ? "▲ +" : "▼ "}${d} ${unit} <span style="opacity:.75">จากครั้งก่อน</span></span>`;
+}
+function sparkline(vals, color) {
+  const W = 320, H = 72, pad = 8;
+  const min = Math.min(...vals), max = Math.max(...vals), range = (max - min) || 1;
+  const X = i => pad + i * (W - pad * 2) / (vals.length - 1);
+  const Y = v => H - pad - ((v - min) / range) * (H - pad * 2);
+  const pts = vals.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const area = `${pad},${H - pad} ${pts} ${(W - pad)},${H - pad}`;
+  const dots = vals.map((v, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3" fill="#fff" stroke="${color}" stroke-width="2"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;margin-top:8px"><polygon points="${area}" fill="${color}" opacity="0.12"/><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${dots}</svg>`;
 }
 
 function onboarding() {
@@ -401,6 +487,8 @@ function viewGrowth() {
       <div class="small muted mt">* อ้างอิงเกณฑ์การเจริญเติบโต WHO 0–24 เดือน (${gender === "girl" ? "เด็กหญิง" : "เด็กชาย"})</div>
     </div>
 
+    ${heightPredictCard()}
+
     <div class="section-title">ประวัติการชั่ง/วัด</div>
     <div class="card">
       ${g.length === 0 ? `<div class="empty small">ยังไม่มีข้อมูล</div>` :
@@ -420,6 +508,377 @@ function statRow(emoji, label, value, s) {
     <div class="body"><div class="t">${label}: ${value}</div>
       <div class="s" style="color:${color}">${s.emoji} ${s.status} (ค่ากลางวัยนี้ ~${(label === "น้ำหนัก" ? s.p50.toFixed(1) + " กก." : s.p50.toFixed(0) + " ซม.")})</div></div>
   </div>`;
+}
+
+/* ---- ทำนายส่วนสูงตอนโต (mid-parental height) ---- */
+function heightPredictCard() {
+  const p = Store.data.profile;
+  const dad = +p.dadHeight || 0, mom = +p.momHeight || 0;
+  let result = "";
+  if (dad && mom) {
+    const mid = p.gender === "girl" ? (dad + mom - 13) / 2 : (dad + mom + 13) / 2;
+    const lo = Math.round(mid - 8.5), hi = Math.round(mid + 8.5);
+    result = `<div class="center" style="margin:10px 0 4px">
+        <div style="font-family:var(--font-head);font-size:34px;font-weight:800;color:var(--purple)">~${Math.round(mid)} ซม.</div>
+        <div class="small muted">ช่วงที่เป็นไปได้ ${lo}–${hi} ซม. (เมื่อโตเป็นผู้ใหญ่)</div>
+      </div>`;
+  }
+  return `<div class="card">
+    <h3>📏 ทำนายส่วนสูงตอนโต</h3>
+    <p class="small muted">ประมาณการจากส่วนสูงพ่อ-แม่ (สูตร mid-parental height) เป็นค่าคาดการณ์คร่าวๆ</p>
+    <div class="row2 mt">
+      <label class="field"><span>ส่วนสูงพ่อ (ซม.)</span><input type="number" id="hp-dad" inputmode="decimal" value="${p.dadHeight || ""}" placeholder="เช่น 172"></label>
+      <label class="field"><span>ส่วนสูงแม่ (ซม.)</span><input type="number" id="hp-mom" inputmode="decimal" value="${p.momHeight || ""}" placeholder="เช่น 160"></label>
+    </div>
+    <button class="btn purple block" onclick="saveParentHeights()">🔮 คำนวณ & บันทึก</button>
+    ${result}
+  </div>`;
+}
+function saveParentHeights() {
+  const dad = $("#hp-dad").value, mom = $("#hp-mom").value;
+  if (!dad || !mom) { alert("กรุณาใส่ส่วนสูงพ่อและแม่"); return; }
+  Store.setProfile({ dadHeight: dad, momHeight: mom });
+  render();
+}
+
+/* ==================================================================
+   TEETH (ผังฟันน้ำนม)
+   ================================================================== */
+function viewTeeth() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const t = Store.data.teeth || {};
+  const count = Object.keys(t).length;
+  const tooth = (x) => {
+    const on = !!t[x.id];
+    return `<button class="tooth ${on ? "on" : ""}" onclick="toggleTooth('${x.id}')" title="${esc(x.name)} (${x.typ})">🦷</button>`;
+  };
+  const erupted = [...TEETH.upper, ...TEETH.lower].filter(x => t[x.id])
+    .sort((a, b) => (t[a.id] || "").localeCompare(t[b.id] || ""));
+
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>🦷 ผังฟันน้ำนม</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="card center">
+      <div style="font-family:var(--font-head);font-size:30px;font-weight:800;color:var(--teal-d)">${count} <span style="font-size:18px;color:var(--ink-soft)">/ 20 ซี่</span></div>
+      <div class="progress mt" style="max-width:260px;margin:8px auto 0"><span style="width:${count / 20 * 100}%;background:linear-gradient(90deg,var(--teal),var(--teal-d))"></span></div>
+      <div class="small muted mt">แตะที่ฟันเพื่อบันทึกว่าขึ้นแล้ว (แตะซ้ำเพื่อยกเลิก)</div>
+    </div>
+
+    <div class="card">
+      <div class="small muted center" style="margin-bottom:4px">ฟันบน 👆</div>
+      <div class="teeth-row">${TEETH.upper.map(tooth).join("")}</div>
+      <div class="teeth-divider"></div>
+      <div class="teeth-row">${TEETH.lower.map(tooth).join("")}</div>
+      <div class="small muted center" style="margin-top:4px">ฟันล่าง 👇</div>
+    </div>
+
+    ${erupted.length ? `<div class="section-title">ซี่ที่ขึ้นแล้ว (เรียงตามวันที่)</div>
+    <div class="card">
+      ${erupted.map(x => `<div class="list-item">
+        <div class="bubble grow">🦷</div>
+        <div class="body"><div class="t">${esc(x.name)}</div><div class="s">มักขึ้น ${x.typ}</div></div>
+        <div class="time">${t[x.id] ? fmtDate(t[x.id] + "T00:00") : ""}</div>
+        <button class="del-btn" onclick="toggleTooth('${x.id}')">↩️</button>
+      </div>`).join("")}
+    </div>` : ""}
+    <div class="card small muted">ℹ️ ลำดับและอายุการขึ้นของฟันเป็นค่าเฉลี่ย เด็กแต่ละคนต่างกันได้</div>
+  </div>`;
+}
+function toggleTooth(id) {
+  const t = Store.data.teeth || (Store.data.teeth = {});
+  const erupting = !t[id];
+  if (erupting) t[id] = dayKey(new Date());
+  else delete t[id];
+  Store.save();
+  render();
+  if (erupting) {
+    const btn = document.querySelector(`.tooth[onclick*="${id}"]`);
+    if (btn) { btn.classList.add("pop"); celebrate(btn); }
+  }
+}
+
+/* ==================================================================
+   HEALTH CARD (บัตรสุขภาพ)
+   ================================================================== */
+function viewHealthCard() {
+  const h = Store.data.healthInfo || {};
+  const bloods = ["A", "B", "AB", "O", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>🩺 บัตรสุขภาพ</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="card">
+      <p class="small muted">ข้อมูลสำคัญไว้ดูยามจำเป็น/ฉุกเฉิน — ใส่ครั้งเดียว แก้ไขเมื่อมีการเปลี่ยนแปลง</p>
+      <label class="field"><span>กรุ๊ปเลือด</span>
+        <select id="hc-blood">
+          <option value="">— เลือก —</option>
+          ${bloods.map(b => `<option value="${b}" ${h.blood === b ? "selected" : ""}>${b}</option>`).join("")}
+        </select>
+      </label>
+      <label class="field"><span>แพ้อาหาร / แพ้ยา</span><textarea id="hc-allergy" placeholder="เช่น แพ้นมวัว, แพ้ยาเพนิซิลลิน">${esc(h.allergy || "")}</textarea></label>
+      <label class="field"><span>โรคประจำตัว / ภาวะสุขภาพ</span><textarea id="hc-condition" placeholder="เช่น หอบหืด (ถ้าไม่มีเว้นว่าง)">${esc(h.condition || "")}</textarea></label>
+      <label class="field"><span>ยาที่ใช้ประจำ</span><input type="text" id="hc-meds" value="${esc(h.meds || "")}" placeholder="เช่น วิตามิน D"></label>
+      <div class="row2">
+        <label class="field"><span>ผู้ติดต่อฉุกเฉิน</span><input type="text" id="hc-emgname" value="${esc(h.emgName || "")}" placeholder="เช่น แม่"></label>
+        <label class="field"><span>เบอร์ฉุกเฉิน</span><input type="tel" id="hc-emgphone" value="${esc(h.emgPhone || "")}" placeholder="08x-xxx-xxxx"></label>
+      </div>
+      <label class="field"><span>แพทย์ / โรงพยาบาลประจำ</span><input type="text" id="hc-hospital" value="${esc(h.hospital || "")}" placeholder="เช่น รพ. ... / พญ. ..."></label>
+      <label class="field"><span>หมายเหตุอื่นๆ</span><textarea id="hc-note" placeholder="ข้อมูลเพิ่มเติม">${esc(h.note || "")}</textarea></label>
+      <button class="btn block" onclick="saveHealthCard()">💾 บันทึกบัตรสุขภาพ</button>
+    </div>
+  </div>`;
+}
+function saveHealthCard() {
+  Store.data.healthInfo = {
+    blood: $("#hc-blood").value,
+    allergy: $("#hc-allergy").value.trim(),
+    condition: $("#hc-condition").value.trim(),
+    meds: $("#hc-meds").value.trim(),
+    emgName: $("#hc-emgname").value.trim(),
+    emgPhone: $("#hc-emgphone").value.trim(),
+    hospital: $("#hc-hospital").value.trim(),
+    note: $("#hc-note").value.trim(),
+  };
+  Store.save();
+  alert("บันทึกบัตรสุขภาพแล้ว 💛");
+  go("more");
+}
+
+/* ==================================================================
+   TIMELINE (ไทม์ไลน์การเติบโต — รวมทุกเหตุการณ์อัตโนมัติ)
+   ================================================================== */
+function viewTimeline() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const P = Store.data.profile;
+  const ev = [];
+
+  Store.data.memories.forEach(m => ev.push({ date: m.date, icon: "📸", cls: "milk", title: m.title, photo: m.photo }));
+  Object.entries(Store.data.teeth || {}).forEach(([id, d]) => {
+    const t = [...TEETH.upper, ...TEETH.lower].find(x => x.id === id);
+    ev.push({ date: d, icon: "🦷", cls: "diaper", title: "ฟันขึ้น: " + (t ? t.name : "") });
+  });
+  Store.data.growth.forEach(x => ev.push({
+    date: x.date, icon: "📏", cls: "grow",
+    title: "ชั่ง/วัด: " + [x.weight && x.weight + " กก.", x.height && x.height + " ซม."].filter(Boolean).join(" · "),
+  }));
+  const msMap = {};
+  MILESTONES.forEach(c => c.items.forEach(i => msMap[i.id] = { text: i.text, emoji: DOMAIN_INFO[i.domain].emoji }));
+  Object.entries(Store.data.milestones || {}).forEach(([id, v]) => {
+    if (v && v.done && v.date) {
+      const m = msMap[id];
+      ev.push({ date: dayKey(v.date), icon: m ? m.emoji : "🎯", cls: "grow", title: "พัฒนาการ: " + (m ? m.text : "") });
+    }
+  });
+  Store.data.appointments.forEach(a => {
+    if (a.done) ev.push({ date: a.date, icon: a.isVaccine ? "💉" : "🩺", cls: "appt", title: a.title });
+  });
+  Store.data.sizes.forEach(s => {
+    const parts = [s.clothing && "เสื้อผ้า " + s.clothing, s.shoe && "รองเท้า " + s.shoe, s.diaper && "ผ้าอ้อม " + s.diaper].filter(Boolean);
+    if (parts.length) ev.push({ date: s.date, icon: "👕", cls: "milk", title: "ไซส์: " + parts.join(" · ") });
+  });
+  if (P.birthDate) ev.push({ date: P.birthDate, icon: "🎂", cls: "appt", title: "วันเกิด " + esc(P.name || "ลูกน้อย") + " 🎉" });
+
+  ev.sort((a, b) => b.date.localeCompare(a.date) || 0);
+
+  let body;
+  if (ev.length <= 1) {
+    body = `<div class="card"><div class="empty"><span class="e">📅</span>ยังมีเรื่องราวไม่มาก<br>เริ่มบันทึกความทรงจำ ฟันน้ำนม หรือชั่งน้ำหนัก แล้วกลับมาดูไทม์ไลน์ได้เลย 💛</div></div>`;
+  } else {
+    body = `<div class="timeline">` + ev.map(e => {
+      const age = ageTextAtDate(e.date);
+      return `<div class="tl-item">
+        <div class="tl-dot bubble ${e.cls}">${e.icon}</div>
+        <div class="tl-card">
+          <div class="tl-meta">${fmtDateFull(e.date + "T00:00")}${age ? ` · อายุ ${age}` : ""}</div>
+          <div class="t">${esc(e.title)}</div>
+          ${e.photo ? `<img class="mem-img" style="margin-top:8px;max-height:220px" src="${e.photo}" alt="">` : ""}
+        </div>
+      </div>`;
+    }).join("") + `</div>`;
+  }
+
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>📅 ไทม์ไลน์การเติบโต</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 12px">เรื่องราวทั้งหมดของ${esc(P.name || "ลูกน้อย")} เรียงจากล่าสุด 💛</div>
+    ${body}
+  </div>`;
+}
+
+/* ==================================================================
+   SIZES (ไซส์เสื้อผ้า-รองเท้า)
+   ================================================================== */
+function viewSizes() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const list = [...Store.data.sizes].sort((a, b) => b.date.localeCompare(a.date));
+  const latestOf = (k) => list.find(s => s[k]);
+  const cur = { clothing: latestOf("clothing"), shoe: latestOf("shoe"), diaper: latestOf("diaper") };
+
+  const curCard = `<div class="stat-grid">
+    <div class="stat"><div class="label">👕 เสื้อผ้า</div><div class="value">${cur.clothing ? esc(cur.clothing.clothing) : "—"}</div></div>
+    <div class="stat"><div class="label">👟 รองเท้า</div><div class="value">${cur.shoe ? esc(cur.shoe.shoe) : "—"}</div></div>
+    <div class="stat"><div class="label">🧷 ผ้าอ้อม</div><div class="value">${cur.diaper ? esc(cur.diaper.diaper) : "—"}</div></div>
+    <div class="stat" onclick="sheetSize()" style="cursor:pointer;display:grid;place-items:center;background:var(--cream-2)"><div class="value" style="font-size:16px;color:var(--orange-d)">＋ อัปเดตไซส์</div></div>
+  </div>`;
+
+  const hist = list.length ? list.map(s => {
+    const parts = [s.clothing && "👕 " + s.clothing, s.shoe && "👟 " + s.shoe, s.diaper && "🧷 " + s.diaper].filter(Boolean).join("  ");
+    return `<div class="list-item">
+      <div class="bubble milk">👕</div>
+      <div class="body"><div class="t">${esc(parts)}</div><div class="s">${fmtDateFull(s.date + "T00:00")}${ageTextAtDate(s.date) ? " · อายุ " + ageTextAtDate(s.date) : ""}${s.note ? " · " + esc(s.note) : ""}</div></div>
+      <button class="del-btn" onclick="delItem('sizes','${s.id}')">🗑️</button>
+    </div>`;
+  }).join("") : `<div class="empty small">ยังไม่มีประวัติ</div>`;
+
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>👕 ไซส์ปัจจุบัน</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 10px">จดไซส์ไว้ เวลาไปซื้อเสื้อผ้า-รองเท้าจะได้ไม่ต้องเดา</div>
+    ${curCard}
+    <div class="section-title">ประวัติไซส์</div>
+    <div class="card">${hist}</div>
+  </div>`;
+}
+function sheetSize() {
+  openSheet("👕 อัปเดตไซส์", `
+    <label class="field"><span>วันที่</span><input type="date" id="sz-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>ไซส์เสื้อผ้า</span><input type="text" id="sz-clothing" placeholder="เช่น 80, 12-18m, M"></label>
+    <label class="field"><span>ไซส์รองเท้า</span><input type="text" id="sz-shoe" placeholder="เช่น 13 ซม. / เบอร์ 22"></label>
+    <label class="field"><span>ไซส์ผ้าอ้อม</span><input type="text" id="sz-diaper" placeholder="เช่น M, L, XL"></label>
+    <label class="field"><span>หมายเหตุ</span><input type="text" id="sz-note" placeholder="ไม่บังคับ"></label>
+    <button class="btn block" onclick="saveSize()">💾 บันทึก</button>
+  `);
+}
+function saveSize() {
+  const clothing = $("#sz-clothing").value.trim(), shoe = $("#sz-shoe").value.trim(), diaper = $("#sz-diaper").value.trim();
+  if (!clothing && !shoe && !diaper) { alert("ใส่ไซส์อย่างน้อย 1 อย่าง"); return; }
+  Store.add("sizes", { date: $("#sz-date").value || dayKey(new Date()), clothing, shoe, diaper, note: $("#sz-note").value.trim() });
+  closeSheet(); render();
+}
+
+/* ==================================================================
+   LETTERS (จดหมายถึงลูก)
+   ================================================================== */
+function viewLetters() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const list = [...(Store.data.letters || [])].sort((a, b) => b.date.localeCompare(a.date));
+  let body;
+  if (list.length === 0) {
+    body = `<div class="card"><div class="empty"><span class="e">💌</span>ยังไม่มีจดหมาย<br>เขียนข้อความถึงลูกไว้ให้อ่านตอนโตกันนะ 💛</div></div>`;
+  } else {
+    body = list.map(l => `<div class="card">
+      <div class="flex between" style="align-items:flex-start">
+        <h3 style="flex:1">${esc(l.title || "ถึงลูกรัก")}</h3>
+        <button class="del-btn" onclick="delItem('letters','${l.id}')">🗑️</button>
+      </div>
+      <div class="small muted" style="margin:2px 0 8px">📅 ${fmtDateFull(l.date + "T00:00")}${ageTextAtDate(l.date) ? " · อายุ " + ageTextAtDate(l.date) : ""}</div>
+      <div style="white-space:pre-wrap;font-family:var(--font-fun);line-height:1.7">${esc(l.body)}</div>
+    </div>`).join("");
+  }
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>💌 จดหมายถึงลูก</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 10px">บันทึกความรู้สึก ความหวัง คำอวยพร ไว้ให้${esc(Store.data.profile.name || "ลูก")}อ่านในวันข้างหน้า</div>
+    ${body}
+  </div>`;
+}
+function sheetLetter() {
+  openSheet("💌 เขียนจดหมายถึงลูก", `
+    <label class="field"><span>หัวข้อ</span><input type="text" id="lt-title" placeholder="เช่น ถึงลูกในวันเกิดขวบแรก"></label>
+    <label class="field"><span>วันที่</span><input type="date" id="lt-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>ข้อความ</span><textarea id="lt-body" style="min-height:160px" placeholder="เขียนถึงลูก..."></textarea></label>
+    <button class="btn pink block" onclick="saveLetter()">💾 บันทึกจดหมาย</button>
+  `);
+}
+function saveLetter() {
+  const body = $("#lt-body").value.trim();
+  if (!body) { alert("กรุณาเขียนข้อความ"); return; }
+  Store.add("letters", { title: $("#lt-title").value.trim(), date: $("#lt-date").value || dayKey(new Date()), body });
+  closeSheet(); render();
+}
+
+/* ==================================================================
+   QUOTES (คำพูดน่ารักของลูก)
+   ================================================================== */
+function viewQuotes() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const list = [...(Store.data.quotes || [])].sort((a, b) => b.date.localeCompare(a.date));
+  let body;
+  if (list.length === 0) {
+    body = `<div class="card"><div class="empty"><span class="e">💬</span>ยังไม่มีคำพูด<br>เก็บคำพูดหรือเรื่องขำน่ารักๆ ของลูกไว้กันเถอะ 😄</div></div>`;
+  } else {
+    body = list.map(q => `<div class="card">
+      <div class="flex between" style="align-items:flex-start">
+        <div style="flex:1;font-family:var(--font-fun);font-size:18px">“${esc(q.text)}”</div>
+        <button class="del-btn" onclick="delItem('quotes','${q.id}')">🗑️</button>
+      </div>
+      <div class="small muted" style="margin-top:6px">${fmtDateFull(q.date + "T00:00")}${ageTextAtDate(q.date) ? " · อายุ " + ageTextAtDate(q.date) : ""}${q.note ? " · " + esc(q.note) : ""}</div>
+    </div>`).join("");
+  }
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>💬 คำพูดน่ารัก</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 10px">คำพูด เรื่องขำ หรือคำน่ารักๆ ที่${esc(Store.data.profile.name || "ลูก")}พูด — อ่านทีไรก็ยิ้ม 😊</div>
+    ${body}
+  </div>`;
+}
+function sheetQuote() {
+  openSheet("💬 เพิ่มคำพูดน่ารัก", `
+    <label class="field"><span>คำพูด/เรื่องที่ลูกพูด</span><textarea id="qt-text" placeholder="เช่น หนูรักแม่เท่าฟ้าเลย!"></textarea></label>
+    <label class="field"><span>วันที่</span><input type="date" id="qt-date" value="${dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>หมายเหตุ (ไม่บังคับ)</span><input type="text" id="qt-note" placeholder="เช่น ตอนกินข้าวเย็น"></label>
+    <button class="btn teal block" onclick="saveQuote()">💾 บันทึก</button>
+  `);
+}
+function saveQuote() {
+  const text = $("#qt-text").value.trim();
+  if (!text) { alert("กรุณาใส่คำพูด"); return; }
+  Store.add("quotes", { text, date: $("#qt-date").value || dayKey(new Date()), note: $("#qt-note").value.trim() });
+  closeSheet(); render();
+}
+
+/* ==================================================================
+   CHILDREN (ลูกหลายคน)
+   ================================================================== */
+function pickChild(id) { Store.switchChild(id); App.msCheckpoint = null; render(); }
+function viewChildren() {
+  const kids = Store.children();
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>👨‍👩‍👧 ลูกของเรา</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 10px">แตะเพื่อสลับดูข้อมูลของลูกแต่ละคน</div>
+    <div class="card" style="padding:6px 16px">
+      ${kids.map(c => {
+    const active = c.id === Store.activeId;
+    const bd = c.profile.birthDate;
+    let agetxt = "ยังไม่ได้ตั้งวันเกิด";
+    if (bd) { const sv = Store.data; Store.data = c; agetxt = "อายุ " + ageText(); Store.data = sv; }
+    return `<div class="list-item">
+        <div class="bubble milk" style="cursor:pointer" onclick="pickChild('${c.id}')">${c.profile.photo ? `<img src="${c.profile.photo}" style="width:100%;height:100%;object-fit:cover;border-radius:14px">` : (c.profile.gender === "girl" ? "👧" : "👦")}</div>
+        <div class="body" style="cursor:pointer" onclick="pickChild('${c.id}')">
+          <div class="t">${esc(c.profile.name || "ลูกน้อย")} ${active ? '<span class="badge" style="background:var(--green);color:#fff">กำลังดู</span>' : ""}</div>
+          <div class="s">${agetxt}</div>
+        </div>
+        <button class="del-btn" onclick="renameChildPrompt('${c.id}')">✏️</button>
+        ${kids.length > 1 ? `<button class="del-btn" onclick="deleteChild('${c.id}')">🗑️</button>` : ""}
+      </div>`;
+  }).join("")}
+    </div>
+    <button class="btn block teal" onclick="promptAddChild()">➕ เพิ่มลูกอีกคน</button>
+  </div>`;
+}
+function promptAddChild() {
+  const name = prompt("ชื่อเล่นของลูกคนใหม่:");
+  if (name === null) return;
+  Store.addChild(name.trim());
+  App.msCheckpoint = null;
+  go("profile"); // ไปตั้งวันเกิด/เพศต่อ
+}
+function renameChildPrompt(id) {
+  const c = Store.children().find(x => x.id === id);
+  const name = prompt("เปลี่ยนชื่อเล่น:", c ? c.profile.name : "");
+  if (name === null) return;
+  Store.renameChild(id, name.trim());
+  render();
+}
+function deleteChild(id) {
+  const c = Store.children().find(x => x.id === id);
+  if (confirm(`ลบข้อมูลของ "${c ? c.profile.name || "ลูกน้อย" : ""}" ทั้งหมด? ย้อนกลับไม่ได้`)) {
+    Store.removeChild(id);
+    render();
+  }
 }
 
 function growthChart(type) {
@@ -489,7 +948,7 @@ function analyzeDevelopment() {
   const ms = Store.data.milestones;
   const result = { insights: [], overdue: [], pct: 0, done: 0, total: 0, checkpointLabel: "—", homeCard: "" };
   if (!a) return result;
-  const ageM = a.months;
+  const ageM = correctedMonths(); // ใช้อายุแก้ไขสำหรับเด็กคลอดก่อนกำหนด
 
   // current checkpoint = latest with month <= ageM (or first)
   let cp = MILESTONES[0];
@@ -591,6 +1050,7 @@ function viewDev() {
 
   return topbar() + `<div class="screen">
     <h2>🎯 พัฒนาการตามวัย</h2>
+    ${isPreterm() ? `<div class="alert"><span class="e">✨</span><div>น้องคลอดก่อนกำหนด — ประเมินพัฒนาการด้วย <b>อายุแก้ไข ${correctedAgeText()}</b> (ไม่ใช่อายุจริง) ซึ่งเหมาะสมกว่าจนถึงอายุประมาณ 2 ปี</div></div>` : ""}
     ${dev.aiCard}
     ${dev.alert}
 
@@ -647,20 +1107,28 @@ function viewMore() {
   const apptLeft = Store.data.appointments.filter(a => !a.done && a.date >= dayKey(new Date())).length;
   const todayTemps = Store.data.temps.filter(t => dayKey(t.time) === dayKey(new Date()));
   const maxTemp = todayTemps.length ? Math.max(...todayTemps.map(t => +t.value)) : null;
+  const teethN = Object.keys(Store.data.teeth || {}).length;
+  const hi = Store.data.healthInfo || {};
+  const hasCard = hi.blood || hi.allergy || hi.condition || hi.emgPhone;
+  const latestSize = [...Store.data.sizes].sort((a, b) => b.date.localeCompare(a.date))[0];
   const menu = [
-    ["sync", "🔄", "ซิงค์ข้อมูลพ่อแม่", (typeof Sync !== "undefined" && Sync.ready) ? `✅ เปิดอยู่ (รหัส ${Sync.code})` : "ให้ข้อมูลตรงกันทุกเครื่องแบบเรียลไทม์"],
-    ["diary", "📸", "ไดอารี่ความทรงจำ", Store.data.memories.length ? `${Store.data.memories.length} ความทรงจำ` : "เก็บภาพ & โมเมนต์พิเศษ"],
+    ["timeline", "📅", "ไทม์ไลน์การเติบโต", "ดูเรื่องราวการเติบโตทั้งหมด"],
+    ["letters", "💌", "จดหมายถึงลูก", (Store.data.letters || []).length ? `${Store.data.letters.length} ฉบับ` : "เขียนถึงลูกไว้ให้อ่านตอนโต"],
+    ["quotes", "💬", "คำพูดน่ารักของลูก", (Store.data.quotes || []).length ? `${Store.data.quotes.length} ประโยค` : "เก็บคำพูด/เรื่องขำไว้"],
+    ["teeth", "🦷", "ผังฟันน้ำนม", teethN ? `ขึ้นแล้ว ${teethN}/20 ซี่` : "บันทึกฟันที่ขึ้นแต่ละซี่"],
+    ["sizes", "👕", "ไซส์เสื้อผ้า-รองเท้า", latestSize ? `ล่าสุด ${[latestSize.clothing && "เสื้อ " + latestSize.clothing, latestSize.shoe && "รองเท้า " + latestSize.shoe].filter(Boolean).join(" · ") || "บันทึกแล้ว"}` : "จดไซส์ปัจจุบันไว้ตอนซื้อของ"],
+    ["healthcard", "🩺", "บัตรสุขภาพ", hasCard ? "ดู/แก้ไขข้อมูลสุขภาพ" : "กรุ๊ปเลือด แพ้ยา/อาหาร เบอร์ฉุกเฉิน"],
     ["health", "🌡️", "สุขภาพ (ไข้ & ยา)", maxTemp ? `ไข้วันนี้สูงสุด ${maxTemp}°C` : "บันทึกอุณหภูมิ & ยา/วิตามิน"],
-    ["summary", "📊", "สรุปรายสัปดาห์", "ดูแพตเทิร์นนม นอน ผ้าอ้อม 7 วัน"],
+    ["appt", "💉", "นัดหมอ & วัคซีน", `${apptLeft} นัดที่กำลังจะถึง`],
     ["shopping", "🛒", "ของต้องซื้อให้ลูก", `เหลือ ${shopLeft} รายการ`],
-    ["appt", "🩺", "นัดหมอ & วัคซีน", `${apptLeft} นัดที่กำลังจะถึง`],
+    ["sync", "🔄", "ซิงค์ข้อมูลพ่อแม่", (typeof Sync !== "undefined" && Sync.ready) ? `✅ เปิดอยู่ (รหัส ${Sync.code})` : "ให้ข้อมูลตรงกันทุกเครื่อง"],
     ["profile", "👶", "ข้อมูลลูกน้อย", Store.data.profile.name || "ยังไม่ได้ตั้งค่า"],
     ["settings", "⚙️", "ตั้งค่า & สำรองข้อมูล", "ส่งออก/นำเข้าข้อมูล"],
   ];
   return topbar() + `<div class="screen">
     <h2>🧸 เพิ่มเติม</h2>
     <div class="card" style="padding:6px 16px">
-      ${menu.map(m => `<div class="list-item" style="cursor:pointer" onclick="go('${m[0]}')">
+      ${menu.map((m, i) => `<div class="list-item more-item" style="cursor:pointer;animation-delay:${0.03 + i * 0.05}s" onclick="go('${m[0]}')">
         <div class="bubble appt">${m[1]}</div>
         <div class="body"><div class="t">${m[2]}</div><div class="s">${esc(m[3])}</div></div>
         <div class="time">›</div>
@@ -763,6 +1231,16 @@ function viewProfile() {
         </div>
       </label>
       <label class="field"><span>วันเกิด</span><input type="date" id="pf-birth" value="${p.birthDate}" max="${dayKey(new Date())}"></label>
+
+      <div class="field" style="margin-bottom:8px">
+        <span style="font-size:14px;font-weight:600">คลอดก่อนกำหนด? (ไม่บังคับ)</span>
+        <div class="small muted" style="margin:2px 0 8px">ใส่อายุครรภ์ตอนคลอด เพื่อให้แอปคำนวณ "อายุแก้ไข" ที่ใช้กับเกณฑ์พัฒนาการ/น้ำหนัก (เว้นว่างถ้าครบกำหนด)</div>
+        <div class="row2">
+          <label class="field" style="margin-bottom:0"><span>อายุครรภ์ (สัปดาห์)</span><input type="number" id="pf-gw" inputmode="numeric" min="20" max="42" value="${p.gestWeeks || ""}" placeholder="เช่น 33"></label>
+          <label class="field" style="margin-bottom:0"><span>+ วัน</span><input type="number" id="pf-gd" inputmode="numeric" min="0" max="6" value="${p.gestDays || ""}" placeholder="เช่น 4"></label>
+        </div>
+      </div>
+
       <button class="btn block" onclick="saveProfile()">💾 บันทึกข้อมูล</button>
     </div>
   </div>`;
@@ -772,6 +1250,8 @@ function setGender(g) {
   const patch = { gender: g };
   if (nameEl) patch.name = nameEl.value.trim();
   if (birthEl && birthEl.value) patch.birthDate = birthEl.value;
+  if ($("#pf-gw")) patch.gestWeeks = $("#pf-gw").value;
+  if ($("#pf-gd")) patch.gestDays = $("#pf-gd").value;
   Store.setProfile(patch);
   go("profile");
 }
@@ -803,7 +1283,9 @@ function saveProfile() {
   const name = $("#pf-name").value.trim();
   const birth = $("#pf-birth").value;
   if (!birth) { alert("กรุณาใส่วันเกิดของลูกน้อย"); return; }
-  Store.setProfile({ name, birthDate: birth });
+  const gw = $("#pf-gw") ? $("#pf-gw").value : "";
+  const gd = $("#pf-gd") ? $("#pf-gd").value : "";
+  Store.setProfile({ name, birthDate: birth, gestWeeks: gw, gestDays: gd });
   alert("บันทึกเรียบร้อย 💛");
   go("home");
 }
@@ -817,8 +1299,13 @@ function viewSettings() {
       <p class="small muted" style="margin:4px 0 0">${(typeof Sync !== "undefined" && Sync.ready) ? "✅ เปิดอยู่ — ข้อมูลตรงกันทุกเครื่อง" : "ให้มือถือพ่อ-แม่เห็นข้อมูลเดียวกันแบบเรียลไทม์"}</p>
     </div>
     <div class="card">
+      <h3>📄 ออกเป็นสมุด PDF</h3>
+      <p class="small muted">รวมโปรไฟล์ การเติบโต พัฒนาการ ความทรงจำ คำพูด และจดหมาย เป็นสมุดสวยๆ (เลือก "บันทึกเป็น PDF" ในหน้าพิมพ์)</p>
+      <button class="btn block purple mt" onclick="exportPDF()">📄 สร้างสมุด PDF</button>
+    </div>
+    <div class="card">
       <h3>💾 สำรอง & กู้คืนข้อมูล</h3>
-      <p class="small muted">ข้อมูลเก็บในเครื่องนี้เท่านั้น แนะนำให้ส่งออกเก็บไว้เป็นระยะ หรือใช้ย้ายไปอีกเครื่อง</p>
+      <p class="small muted">สำรองข้อมูลลูกทุกคน แนะนำให้ส่งออกเก็บไว้เป็นระยะ หรือใช้ย้ายเครื่อง</p>
       <button class="btn block teal mt" onclick="exportData()">⬇️ ส่งออกข้อมูล (ไฟล์สำรอง)</button>
       <label class="btn block ghost mt" style="cursor:pointer">⬆️ นำเข้าข้อมูล
         <input type="file" accept="application/json" style="display:none" onchange="importData(event)">
@@ -842,6 +1329,88 @@ function exportData() {
   a.href = URL.createObjectURL(blob);
   a.download = `babykids-backup-${dayKey(new Date())}.json`;
   a.click();
+}
+
+/* ---- ออกเป็นสมุด PDF (ผ่านหน้าต่างพิมพ์ของเบราว์เซอร์) ---- */
+function exportPDF() {
+  const p = Store.data.profile;
+  if (!p.birthDate) { alert("กรุณาใส่ข้อมูลลูกก่อน"); return; }
+  const name = esc(p.name || "ลูกน้อย");
+  const g = [...Store.data.growth].sort((a, b) => a.date.localeCompare(b.date));
+  const teethN = Object.keys(Store.data.teeth || {}).length;
+  const msMap = {}; MILESTONES.forEach(c => c.items.forEach(i => msMap[i.id] = i.text));
+  const ms = Store.data.milestones || {};
+  const msDone = Object.keys(ms).filter(id => ms[id] && ms[id].done).map(id => msMap[id]).filter(Boolean);
+  const mems = [...Store.data.memories].sort((a, b) => a.date.localeCompare(b.date));
+  const letters = [...(Store.data.letters || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const quotes = [...(Store.data.quotes || [])].sort((a, b) => a.date.localeCompare(b.date));
+
+  const cover = p.photo
+    ? `<img class="cover" src="${p.photo}">`
+    : `<div class="cover facebox">${p.gender === "girl" ? "👧" : "👶"}</div>`;
+
+  const sect = (title, inner) => inner ? `<h2>${title}</h2>${inner}` : "";
+
+  const growthRows = g.length ? `<table><tr><th>วันที่</th><th>น้ำหนัก</th><th>ส่วนสูง</th><th>อายุ</th></tr>${g.map(x => `<tr><td>${fmtDate(x.date)}</td><td>${x.weight ? x.weight + " กก." : "-"}</td><td>${x.height ? x.height + " ซม." : "-"}</td><td>${ageTextAtDate(x.date) || "-"}</td></tr>`).join("")}</table>` : "";
+
+  const milestonesHtml = msDone.length ? `<ul>${msDone.map(t => `<li>✅ ${esc(t)}</li>`).join("")}</ul>` : "";
+
+  const memsHtml = mems.map(m => `<div class="mem">
+      ${m.photo ? `<img src="${m.photo}">` : ""}
+      <div class="mem-t">${esc(m.title)}</div>
+      <div class="mem-d">${fmtDateFull(m.date + "T00:00")}${ageTextAtDate(m.date) ? " · อายุ " + ageTextAtDate(m.date) : ""}</div>
+      ${m.note ? `<div class="mem-n">${esc(m.note)}</div>` : ""}
+    </div>`).join("");
+
+  const lettersHtml = letters.map(l => `<div class="letter"><div class="mem-t">${esc(l.title || "ถึงลูกรัก")}</div><div class="mem-d">${fmtDate(l.date)}${ageTextAtDate(l.date) ? " · อายุ " + ageTextAtDate(l.date) : ""}</div><div class="letter-b">${esc(l.body)}</div></div>`).join("");
+
+  const quotesHtml = quotes.length ? `<ul class="quotes">${quotes.map(q => `<li>“${esc(q.text)}” <span class="qd">— ${fmtDate(q.date)}${ageTextAtDate(q.date) ? ", อายุ " + ageTextAtDate(q.date) : ""}</span></li>`).join("")}</ul>` : "";
+
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8">
+  <title>สมุดบันทึก ${name}</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+Thai+2:wght@600;800&family=Sarabun:wght@400;600&family=Itim&display=swap">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Sarabun', sans-serif; color: #4a3f39; margin: 0; padding: 28px 30px; }
+    h1 { font-family: 'Baloo Thai 2'; color: #F58220; font-size: 30px; margin: 6px 0; }
+    h2 { font-family: 'Baloo Thai 2'; color: #2BB3AA; font-size: 20px; margin: 22px 0 8px; border-bottom: 2px solid #F2E6D6; padding-bottom: 4px; }
+    .coverwrap { text-align: center; padding: 10px 0 14px; }
+    .cover { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; border: 4px solid #FF9F43; }
+    .facebox { width: 150px; height: 150px; border-radius: 50%; background: #FFF2E0; display: inline-flex; align-items: center; justify-content: center; font-size: 80px; }
+    .sub { color: #988577; font-size: 15px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { border: 1px solid #eadfce; padding: 6px 8px; text-align: center; }
+    th { background: #FFF7EC; }
+    ul { margin: 4px 0; padding-left: 20px; } li { margin: 3px 0; font-size: 14px; }
+    .mem { page-break-inside: avoid; margin: 10px 0 14px; padding-bottom: 10px; border-bottom: 1px dashed #eadfce; }
+    .mem img { max-width: 100%; max-height: 300px; border-radius: 10px; display: block; margin-bottom: 6px; }
+    .mem-t { font-weight: 700; font-size: 16px; }
+    .mem-d { color: #988577; font-size: 13px; }
+    .mem-n { margin-top: 3px; }
+    .letter { page-break-inside: avoid; margin: 10px 0; }
+    .letter-b { font-family: 'Itim'; white-space: pre-wrap; line-height: 1.7; margin-top: 4px; }
+    .quotes li { font-family: 'Itim'; font-size: 15px; }
+    .qd { color: #988577; font-size: 12px; font-family: 'Sarabun'; }
+    .foot { text-align: center; color: #b7a594; font-size: 12px; margin-top: 26px; }
+    @media print { body { padding: 0; } @page { margin: 16mm; } }
+  </style></head><body>
+    <div class="coverwrap">
+      ${cover}
+      <h1>สมุดบันทึกของ ${name} 🦒</h1>
+      <div class="sub">${p.gender === "girl" ? "เด็กหญิง" : "เด็กชาย"} · เกิด ${fmtDateFull(p.birthDate + "T00:00")} · ปัจจุบันอายุ ${ageText()}</div>
+    </div>
+    ${sect("📈 การเติบโต" + (teethN ? ` · 🦷 ฟันขึ้น ${teethN}/20 ซี่` : ""), growthRows)}
+    ${sect("🎯 พัฒนาการที่ทำได้ (" + msDone.length + " ข้อ)", milestonesHtml)}
+    ${sect("📸 ความทรงจำ", memsHtml)}
+    ${sect("💬 คำพูดน่ารัก", quotesHtml)}
+    ${sect("💌 จดหมายถึงลูก", lettersHtml)}
+    <div class="foot">สร้างด้วย Baby Kids 🦒 · ${fmtDateFull(dayKey(new Date()) + "T00:00")}</div>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  if (!w) { alert("เบราว์เซอร์บล็อกหน้าต่างใหม่ — กรุณาอนุญาต popup แล้วลองอีกครั้ง"); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch (e) { } }, 500);
 }
 function importData(ev) {
   const file = ev.target.files[0]; if (!file) return;
@@ -1385,6 +1954,10 @@ function fabAction() {
   if (r === "appt") return sheetAppt();
   if (r === "dev") return go("dev");
   if (r === "diary") return sheetMemory();
+  if (r === "sizes") return sheetSize();
+  if (r === "letters") return sheetLetter();
+  if (r === "quotes") return sheetQuote();
+  if (r === "children") return promptAddChild();
   if (r === "health") {
     return openSheet("➕ บันทึกสุขภาพ", `
       <div class="quick-grid" style="grid-template-columns:1fr 1fr;gap:12px">
@@ -1392,13 +1965,13 @@ function fabAction() {
         <button class="quick grow" onclick="closeSheet();sheetMed()"><span class="e">💊</span>ให้ยา/วิตามิน</button>
       </div>`);
   }
-  // default quick chooser
-  openSheet("➕ บันทึกด่วน", `
+  // default quick chooser (ของที่นานๆ บันทึกที)
+  openSheet("➕ เพิ่มบันทึก", `
     <div class="quick-grid" style="grid-template-columns:repeat(2,1fr);gap:12px">
-      <button class="quick milk" onclick="closeSheet();sheetFeed()"><span class="e">🍼</span>กินนม</button>
-      <button class="quick sleep" onclick="closeSheet();sheetSleep()"><span class="e">😴</span>การนอน</button>
-      <button class="quick diaper" onclick="closeSheet();sheetDiaper()"><span class="e">💩</span>ผ้าอ้อม</button>
       <button class="quick grow" onclick="closeSheet();sheetGrowth()"><span class="e">📏</span>ชั่ง/วัด</button>
+      <button class="quick milk" onclick="closeSheet();sheetMemory()"><span class="e">📸</span>ความทรงจำ</button>
+      <button class="quick diaper" onclick="closeSheet();go('teeth')"><span class="e">🦷</span>ฟันน้ำนม</button>
+      <button class="quick sleep" onclick="closeSheet();go('health')"><span class="e">🌡️</span>สุขภาพ</button>
     </div>
   `);
 }

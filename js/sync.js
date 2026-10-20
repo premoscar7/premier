@@ -30,7 +30,7 @@ const Sync = {
   },
   async _post() {
     // ใช้ content-type text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
-    const body = JSON.stringify({ code: this.code, data: Store.data });
+    const body = JSON.stringify({ code: this.code, data: Store.snapshot() });
     const r = await fetch(this.url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body });
     if (!r.ok) throw new Error("HTTP " + r.status);
     return await r.json();
@@ -54,9 +54,9 @@ const Sync = {
       return;
     }
 
-    const localHas = this.hasData(Store.data);
+    const localHas = this.hasData(Store.snapshot());
     if (remote && this.hasData(remote)) {
-      const same = JSON.stringify(remote) === JSON.stringify(Store.data);
+      const same = JSON.stringify(remote) === JSON.stringify(Store.snapshot());
       if (!opts.silent && localHas && !same) {
         const useCloud = confirm(
           "พบข้อมูลในคลาวด์อยู่แล้ว (จากอีกเครื่อง)\n\n" +
@@ -89,7 +89,7 @@ const Sync = {
         const remote = j && j.data;
         if (remote) {
           const rj = JSON.stringify(remote);
-          if (rj !== JSON.stringify(Store.data) && rj !== this._lastJSON) this.applyRemote(remote);
+          if (rj !== JSON.stringify(Store.snapshot()) && rj !== this._lastJSON) this.applyRemote(remote);
         }
         if (this.status === "error") { this.status = "on"; if (this._onSync()) render(); }
       } catch (e) { this.status = "error"; if (this._onSync()) render(); }
@@ -98,10 +98,9 @@ const Sync = {
 
   applyRemote(data) {
     const incoming = JSON.stringify(data);
-    if (incoming === JSON.stringify(Store.data)) return;
+    if (incoming === JSON.stringify(Store.snapshot())) return;
     this.applying = true;
-    Store.data = Object.assign(JSON.parse(JSON.stringify(DEFAULT_DATA)), data);
-    Store.save();
+    Store.applySnapshot(data);
     this.applying = false;
     this._lastJSON = incoming;
     if (typeof render === "function") render();
@@ -117,7 +116,7 @@ const Sync = {
 
   async _push(silent) {
     if (!this.url || !this.code) return;
-    const payload = JSON.stringify(Store.data);
+    const payload = JSON.stringify(Store.snapshot());
     if (payload === this._lastJSON) { this.status = "on"; return; }
     try {
       await this._post();
@@ -137,9 +136,11 @@ const Sync = {
     if (typeof render === "function") render();
   },
   hasData(d) {
-    return !!(d && ((d.feeds && d.feeds.length) || (d.sleeps && d.sleeps.length) ||
-      (d.diapers && d.diapers.length) || (d.growth && d.growth.length) ||
-      (d.memories && d.memories.length) || (d.temps && d.temps.length) ||
-      (d.meds && d.meds.length) || (d.profile && d.profile.birthDate)));
+    if (!d) return false;
+    const arr = Array.isArray(d.children) ? d.children : (d.profile ? [d] : []);
+    return arr.some(c => c && ((c.profile && c.profile.birthDate) ||
+      (c.growth && c.growth.length) || (c.memories && c.memories.length) ||
+      (c.teeth && Object.keys(c.teeth).length) || (c.milestones && Object.keys(c.milestones).length) ||
+      (c.letters && c.letters.length) || (c.quotes && c.quotes.length)));
   },
 };
