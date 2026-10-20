@@ -119,12 +119,12 @@ const Sync = {
   _onSync() { return typeof App !== "undefined" && App.route === "sync"; },
 
   init() {
-    // ต้องล็อกอินด้วยรหัสครอบครัวก่อน (เซสชันอยู่ได้ 1 สัปดาห์) — ไม่มีแชร์อัตโนมัติแล้ว
+    // ต้องล็อกอินด้วยรหัสครอบครัวก่อน (เซสชันอยู่ได้ 1 เดือน) — ไม่มีแชร์อัตโนมัติแล้ว
     this.url = this.cfg().url;
     const code = (localStorage.getItem("bk.familyCode") || "").trim();
     const at = parseInt(localStorage.getItem("bk.loginAt") || "0", 10);
-    const WEEK = 7 * 24 * 60 * 60 * 1000;
-    const valid = code && at && (Date.now() - at < WEEK);
+    const MONTH = 30 * 24 * 60 * 60 * 1000;
+    const valid = code && at && (Date.now() - at < MONTH);
     if (valid && this.url) {
       this.code = code;
       this.connect(this.code, { silent: true });

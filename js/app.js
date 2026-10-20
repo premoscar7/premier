@@ -190,7 +190,7 @@ function installApp() {
 }
 
 /* ---------------- login gate ---------------- */
-const LOGIN_TTL = 7 * 24 * 60 * 60 * 1000; // อยู่ได้ 1 สัปดาห์
+const LOGIN_TTL = 30 * 24 * 60 * 60 * 1000; // อยู่ได้ 1 เดือน
 function isLoggedIn() {
   try {
     const code = (localStorage.getItem("bk.familyCode") || "").trim();
@@ -283,6 +283,8 @@ function viewHome() {
 
   const dev = analyzeDevelopment();
   const upcoming = upcomingAppt();
+  const genderSym = p.gender === "girl" ? "♀️" : "♂️";
+  const bloodChip = (Store.data.healthInfo && Store.data.healthInfo.blood) ? ` · 🩸 ${esc(Store.data.healthInfo.blood)}` : "";
 
   return topbar() + `
   <div class="screen">
@@ -293,8 +295,8 @@ function viewHome() {
         <div style="flex:1">
           <h2>${esc(p.name || "ลูกน้อย")}</h2>
           <div class="age">🎂 อายุ${isPreterm() ? "จริง" : ""} ${ageText()}${isPreterm() ? "" : " · " + stage.label}</div>
-          ${isPreterm() ? `<div class="age" style="font-size:13.5px;opacity:.96">🌱 อายุพัฒนาการ ${correctedAgeText()}</div>
-          <div class="age" style="font-size:12px;opacity:.85">เกิด ${fmtDate(p.birthDate)}${p.dueDate ? ` · เริ่มนับพัฒนาการ ${fmtDate(p.dueDate)}` : ""}</div>` : ""}
+          ${isPreterm() ? `<div class="age" style="font-size:13.5px;opacity:.96">🌱 อายุพัฒนาการ ${correctedAgeText()}</div>` : ""}
+          <div class="age" style="font-size:12.5px;opacity:.9">${genderSym} ${p.gender === "girl" ? "หญิง" : "ชาย"} · 🎂 เกิด ${fmtDate(p.birthDate)}${isPreterm() && p.dueDate ? ` · 🌱 เริ่มนับ ${fmtDate(p.dueDate)}` : ""}${bloodChip}</div>
         </div>
       </div>
     </div>
@@ -1547,6 +1549,12 @@ function viewProfile() {
         </div>
       </label>
       <label class="field"><span>วันเกิด</span><input type="date" id="pf-birth" value="${p.birthDate}" max="${dayKey(new Date())}"></label>
+      <label class="field"><span>กรุ๊ปเลือด (ไม่บังคับ)</span>
+        <select id="pf-blood">
+          <option value="">— ยังไม่ทราบ —</option>
+          ${["A", "B", "AB", "O", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map(b => `<option value="${b}" ${((Store.data.healthInfo || {}).blood) === b ? "selected" : ""}>${b}</option>`).join("")}
+        </select>
+      </label>
 
       <div class="field" style="margin-bottom:8px">
         <span style="font-size:14px;font-weight:600">👶 คลอดก่อนกำหนด? (ไม่บังคับ)</span>
@@ -1571,6 +1579,7 @@ function setGender(g) {
   if ($("#pf-gw")) patch.gestWeeks = $("#pf-gw").value;
   if ($("#pf-gd")) patch.gestDays = $("#pf-gd").value;
   if ($("#pf-due")) patch.dueDate = $("#pf-due").value;
+  if ($("#pf-blood")) { if (!Store.data.healthInfo) Store.data.healthInfo = {}; Store.data.healthInfo.blood = $("#pf-blood").value; }
   Store.setProfile(patch);
   go("profile");
 }
@@ -1605,6 +1614,7 @@ function saveProfile() {
   const gw = $("#pf-gw") ? $("#pf-gw").value : "";
   const gd = $("#pf-gd") ? $("#pf-gd").value : "";
   const due = $("#pf-due") ? $("#pf-due").value : "";
+  if ($("#pf-blood")) { if (!Store.data.healthInfo) Store.data.healthInfo = {}; Store.data.healthInfo.blood = $("#pf-blood").value; }
   Store.setProfile({ name, birthDate: birth, gestWeeks: gw, gestDays: gd, dueDate: due });
   alert("บันทึกเรียบร้อย 💛");
   go("home");
