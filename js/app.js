@@ -168,6 +168,27 @@ function renderNav() {
      </button>`).join("");
 }
 
+/* ---------------- ติดตั้งแอป (PWA) ---------------- */
+let _deferredInstall = null;
+window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); _deferredInstall = e; try { render(); } catch (x) { } });
+window.addEventListener("appinstalled", function () { _deferredInstall = null; try { render(); } catch (x) { } });
+function isStandalone() {
+  try { return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; } catch (e) { return false; }
+}
+function installApp() {
+  if (_deferredInstall) {
+    _deferredInstall.prompt();
+    if (_deferredInstall.userChoice) _deferredInstall.userChoice.then(function () { _deferredInstall = null; try { render(); } catch (x) { } });
+    return;
+  }
+  const ua = navigator.userAgent || "";
+  if (/iphone|ipad|ipod/i.test(ua)) {
+    alert("ติดตั้งลงหน้าจอโฮม (iPhone/iPad):\n1) กดปุ่ม “แชร์” (ไอคอนสี่เหลี่ยมมีลูกศรขึ้น ด้านล่างจอ)\n2) เลือก “เพิ่มลงในหน้าจอโฮม”\n3) กด “เพิ่ม” — จะมีไอคอนแอปเหมือนแอปทั่วไป");
+  } else {
+    alert("ติดตั้งแอป:\nเปิดเมนู ⋮ ของเบราว์เซอร์ แล้วเลือก “ติดตั้งแอป” / “เพิ่มลงในหน้าจอหลัก”\n(ถ้าไม่เจอเมนูนี้ ลองเปิดด้วย Chrome)");
+  }
+}
+
 /* ---------------- login gate ---------------- */
 const LOGIN_TTL = 7 * 24 * 60 * 60 * 1000; // อยู่ได้ 1 สัปดาห์
 function isLoggedIn() {
@@ -196,7 +217,7 @@ function viewLogin() {
       <div class="small muted center" style="margin:14px 0 6px">— ยังไม่มีรหัส? —</div>
       <button class="btn ghost block" onclick="doCreateFamily()">✨ สร้างครอบครัวใหม่ (เริ่มข้อมูลเปล่า)</button>
     </div>
-    <div class="card small muted">🔒 เข้าสู่ระบบครั้งเดียว อยู่ได้ 1 สัปดาห์ · ข้อมูลเก็บในเครื่อง + คลาวด์ (Google Sheet ฟรี) · ใครรู้รหัสจะเห็นข้อมูลได้ ตั้งรหัสที่เดายากและบอกเฉพาะคนในบ้าน</div>
+    ${isStandalone() ? "" : `<button class="btn pink block" style="margin-top:2px" onclick="installApp()">📲 ติดตั้งแอปลงมือถือ</button>`}
   </div>`;
 }
 
@@ -1355,6 +1376,7 @@ function viewMore() {
         <div class="time">›</div>
       </div>`).join("")}
     </div>
+    ${isStandalone() ? "" : `<button class="btn pink block" onclick="installApp()">📲 ติดตั้งแอปลงมือถือ</button>`}
   </div>`;
 }
 
@@ -1987,9 +2009,16 @@ function viewDiary() {
   if (mems.length === 0) {
     body = `<div class="card"><div class="empty"><span class="e">📸</span>ยังไม่มีความทรงจำ<br>แตะ ＋ เก็บโมเมนต์พิเศษครั้งแรกของลูกกันเถอะ 💛</div></div>`;
   } else {
+    const hasImgbb = !!imgbbKey();
     body = mems.map(m => {
       const age = ageTextAtDate(m.date);
       const pic = m.photoUrl || m.photo;
+      let syncNote = "";
+      if (m.photo && !m.photoUrl) {
+        if (_memFailed[m.id]) syncNote = `<div class="small" style="margin-top:6px;color:#e08">⚠️ อัปรูปขึ้นเว็บไม่สำเร็จ — ตรวจ ImgBB key</div>`;
+        else if (hasImgbb) syncNote = `<div class="small muted" style="margin-top:6px">⬆️ ${_memUploading[m.id] ? "กำลังอัปรูปขึ้นเว็บ…" : "รออัปรูปขึ้นเว็บ…"}</div>`;
+        else syncNote = `<div class="small muted" style="margin-top:6px">📷 รูปนี้เก็บเฉพาะในเครื่อง (ใส่ ImgBB key เพื่อให้เห็นทุกเครื่อง)</div>`;
+      }
       return `<div class="card mem-card">
         ${pic ? `<img class="mem-img" src="${pic}" alt="" loading="lazy" onerror="this.style.opacity=0.35">` : ""}
         <div class="flex between" style="align-items:flex-start">
@@ -1998,10 +2027,12 @@ function viewDiary() {
         </div>
         <div class="small muted" style="margin:2px 0 6px">📅 ${fmtDateFull(m.date + "T00:00")}${age ? ` · 👶 อายุ ${age}` : ""}</div>
         ${m.note ? `<div style="white-space:pre-wrap">${esc(m.note)}</div>` : ""}
+        ${syncNote}
       </div>`;
     }).join("");
   }
 
+  if (imgbbKey()) setTimeout(migrateMemPhotos, 400); // ค่อยๆ อัปรูปเก่าขึ้นเว็บให้เห็นทุกเครื่อง
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>📸 ไดอารี่ความทรงจำ</h2>${mems.length ? `<span class="badge">${mems.length} โมเมนต์</span>` : ""}</div>
     <div class="small muted" style="margin:2px 0 10px">เก็บภาพและเรื่องราวครั้งแรกของลูกไว้ดูในวันข้างหน้า 💛</div>
@@ -2177,43 +2208,42 @@ function removeDriveFolder(i) {
   closeSheet(); render();
 }
 
-/* ---- อัปรูปความทรงจำขึ้น Drive อัตโนมัติ → ซิงค์เห็นทุกเครื่อง ---- */
+/* ---- อัปรูปความทรงจำขึ้นเว็บฝากรูปฟรี (ImgBB) → รูปถาวร + ซิงค์เห็นทุกเครื่อง ---- */
 let _memUploading = {}, _memFailed = {}, _memBlocked = false;
-function uploadMemPhotoToDrive(memId, dataUrl, fromMigrate) {
-  const url = (typeof Sync !== "undefined") ? Sync.cfg().url : "";
-  const folders = driveFoldersList();
-  if (!url || !folders.length || !dataUrl || _memUploading[memId]) return;
+function imgbbKey() {
+  return (((window.BK_CONFIG && window.BK_CONFIG.imgbbKey) || "") || localStorage.getItem("bk.imgbbKey") || "").trim();
+}
+function uploadMemPhoto(memId, dataUrl, fromMigrate) {
+  const key = imgbbKey();
+  if (!key || !dataUrl || _memUploading[memId]) return;
   const b64 = (dataUrl.split(",")[1]) || "";
   if (!b64) return;
   _memUploading[memId] = true;
   if (!fromMigrate && App.route === "diary") render();
-  fetch(url, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "upload", folder: folders[0].id, name: "memory-" + Date.now() + ".jpg", mime: "image/jpeg", dataB64: b64 }) })
-    .then(r => r.json()).then(j => {
+  const form = new FormData();
+  form.append("image", b64);
+  fetch("https://api.imgbb.com/1/upload?key=" + encodeURIComponent(key), { method: "POST", body: form })
+    .then(r => r.json())
+    .then(j => {
       delete _memUploading[memId];
-      if (j && j.ok && j.id) {
-        Store.update("memories", memId, {
-          driveId: j.id,
-          photoUrl: "https://lh3.googleusercontent.com/d/" + j.id + "=w1000",
-          photoView: "https://drive.google.com/file/d/" + j.id + "/view",
-          photo: ""   // ลบ base64 ออกจากเครื่อง (รูปอยู่บน Drive แล้ว) — ประหยัดพื้นที่
-        });
+      const link = j && j.success && j.data && (j.data.url || (j.data.image && j.data.image.url));
+      if (link) {
+        Store.update("memories", memId, { photoUrl: link, photoView: (j.data.url_viewer || link), photo: "" });
         if (App.route === "diary") render();
       } else {
         _memFailed[memId] = true;                    // รูปนี้ล้มเหลว → ไม่วนลองใหม่ (กันค้าง/กระพริบ)
-        const err = (j && j.error) || "";
-        if (/DriveApp|อนุญาต|permission|auth/i.test(err)) _memBlocked = true; // ยังไม่เปิดสิทธิ์ → หยุดอัปอัตโนมัติทั้งหมด
-        if (!fromMigrate) { alert("อัปรูปขึ้น Drive ไม่สำเร็จ: " + (err || "ลองใหม่ หรือเปิดสิทธิ์ Drive ก่อน")); if (App.route === "diary") render(); }
-        else if (App.route === "diary") render();
+        const err = (j && j.error && j.error.message) || "";
+        if (!fromMigrate) { alert("อัปรูปไม่สำเร็จ: " + (err || "ตรวจ ImgBB key ใน config")); }
+        if (App.route === "diary") render();
       }
     })
-    .catch(() => { delete _memUploading[memId]; _memFailed[memId] = true; if (!fromMigrate && App.route === "diary") render(); });
+    .catch(() => { delete _memUploading[memId]; _memFailed[memId] = true; if (App.route === "diary") render(); });
 }
 function migrateMemPhotos() {
-  if (_memBlocked) return;                           // ยังไม่เปิดสิทธิ์ Drive → ไม่ลองวน
-  if (!driveFoldersList().length) return;            // ยังไม่มีโฟลเดอร์ → เก็บเฉพาะเครื่อง
+  if (!imgbbKey()) return;                            // ยังไม่ได้ใส่ ImgBB key → เก็บเฉพาะเครื่อง
   if (Object.keys(_memUploading).length) return;     // อัปทีละรูป
   const m = (Store.data.memories || []).find(x => x.photo && !x.photoUrl && !_memFailed[x.id]);
-  if (m) uploadMemPhotoToDrive(m.id, m.photo, true);
+  if (m) uploadMemPhoto(m.id, m.photo, true);
 }
 
 let memPhoto = "";
@@ -2266,15 +2296,18 @@ function pickMemPhoto(ev) {
 function saveMemory() {
   const title = $("#mem-title").value.trim();
   if (!title) { alert("กรุณาใส่หัวข้อความทรงจำ"); return; }
+  let item;
   try {
-    Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
+    item = Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
   } catch (e) {
     alert("พื้นที่จัดเก็บเต็ม ลองลบรูปเก่าหรือใช้รูปเล็กลง");
     return;
   }
+  const pendingPhoto = memPhoto;
   memPhoto = "";
   closeSheet();
   render();
+  if (pendingPhoto && item && imgbbKey()) uploadMemPhoto(item.id, pendingPhoto); // อัปขึ้น ImgBB → ถาวร + ทุกคนเห็น
 }
 
 /* ==================================================================

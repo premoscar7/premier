@@ -6,5 +6,10 @@
    ============================================================ */
 window.BK_CONFIG = {
   sheetUrl: "https://script.google.com/macros/s/AKfycbwQgOLXVP18PDt2gvuNsbKO3oxtFHgZno80fPj4sPiWDnwf1PYG8WsOV9vchEgrHI-fmQ/exec",
-  familyCode: "premier-baby-2026"
+  familyCode: "premier-baby-2026",
+
+  /* ---- ImgBB: ฝากรูปความทรงจำฟรี (รูปถาวร + ทุกคนเห็น) ----
+     วิธีเอา key: ไป https://api.imgbb.com → ล็อกอิน → "Get API key" → คัดลอกมาวางตรงนี้
+     (ถ้าเว้นว่างไว้ รูปจะเก็บเฉพาะในเครื่องเหมือนเดิม) */
+  imgbbKey: "ff6fbd9694a32fff090839b1dd868000"
 };
