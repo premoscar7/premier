@@ -1830,8 +1830,57 @@ function viewDiary() {
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>📸 ไดอารี่ความทรงจำ</h2>${mems.length ? `<span class="badge">${mems.length} โมเมนต์</span>` : ""}</div>
     <div class="small muted" style="margin:2px 0 10px">เก็บภาพและเรื่องราวครั้งแรกของลูกไว้ดูในวันข้างหน้า 💛</div>
+    ${driveSection()}
+    <div class="section-title">✍️ โมเมนต์ที่บันทึกเอง</div>
     ${body}
   </div>`;
+}
+
+/* ---- เชื่อมโฟลเดอร์ Google Drive มาโชว์ในไดอารี่ ---- */
+function extractDriveFolderId(s) {
+  s = (s || "").trim();
+  let m = s.match(/\/folders\/([A-Za-z0-9_-]+)/);
+  if (m) return m[1];
+  m = s.match(/[?&]id=([A-Za-z0-9_-]+)/);
+  if (m) return m[1];
+  if (/^[A-Za-z0-9_-]{15,}$/.test(s)) return s;
+  return "";
+}
+function driveSection() {
+  const drive = Store.data.profile.driveFolder || "";
+  if (drive) {
+    return `<div class="section-title">📁 รูป/วิดีโอจาก Google Drive</div>
+      <div class="card" style="padding:12px">
+        <iframe class="drive-embed" src="https://drive.google.com/embeddedfolderview?id=${esc(drive)}#grid" loading="lazy"></iframe>
+        <div class="flex between gap mt">
+          <a class="btn ghost sm" href="https://drive.google.com/drive/folders/${esc(drive)}" target="_blank" rel="noopener">↗ เปิดใน Drive</a>
+          <button class="btn ghost sm" onclick="changeDriveFolder()">⚙️ เปลี่ยน/ยกเลิก</button>
+        </div>
+        <div class="small muted mt">ดรอปรูป/วิดีโอในโฟลเดอร์นี้ที่ Google Drive → ขึ้นที่นี่อัตโนมัติ ไม่ต้องอัปซ้ำ 💛</div>
+      </div>`;
+  }
+  return `<div class="section-title">📁 เชื่อม Google Drive</div>
+    <div class="card">
+      <p class="small muted">มีโฟลเดอร์รูป/วิดีโอลูกใน Google Drive อยู่แล้ว? เชื่อมมาโชว์ที่นี่เลย — ดรอปไฟล์ใน Drive แล้วขึ้นในแอปอัตโนมัติ ไม่ต้องอัปซ้ำ</p>
+      <label class="field"><span>ลิงก์โฟลเดอร์ Google Drive</span><input type="text" id="drive-url" placeholder="วางลิงก์โฟลเดอร์ (เช่น 0-1 ขวบ)"></label>
+      <button class="btn teal block" onclick="saveDriveFolder()">🔗 เชื่อมโฟลเดอร์</button>
+      <div class="alert mt"><span class="e">⚠️</span><div>ก่อนเชื่อม: ที่ Google Drive คลิกขวาโฟลเดอร์ → แชร์ → ตั้งเป็น <b>"ใครก็ตามที่มีลิงก์ · ผู้อ่าน"</b> รูปถึงจะแสดงได้</div></div>
+    </div>`;
+}
+function saveDriveFolder() {
+  const id = extractDriveFolderId($("#drive-url").value);
+  if (!id) { alert("ลิงก์ไม่ถูกต้อง — กรุณาวางลิงก์โฟลเดอร์ Google Drive"); return; }
+  Store.setProfile({ driveFolder: id });
+  render();
+}
+function changeDriveFolder() {
+  const url = prompt("วางลิงก์โฟลเดอร์ Google Drive ใหม่\n(เว้นว่างแล้วกด OK เพื่อยกเลิกการเชื่อม):", "");
+  if (url === null) return;
+  if (url.trim() === "") { Store.setProfile({ driveFolder: "" }); render(); return; }
+  const id = extractDriveFolderId(url);
+  if (!id) { alert("ลิงก์ไม่ถูกต้อง"); return; }
+  Store.setProfile({ driveFolder: id });
+  render();
 }
 
 let memPhoto = "";
