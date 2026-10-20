@@ -233,8 +233,8 @@ function viewHome() {
         <div style="flex:1">
           <h2>${esc(p.name || "ลูกน้อย")}</h2>
           <div class="age">🎂 อายุ${isPreterm() ? "จริง" : ""} ${ageText()}${isPreterm() ? "" : " · " + stage.label}</div>
-          ${isPreterm() ? `<div class="age" style="font-size:13px;opacity:.92">✨ อายุแก้ไข ${correctedAgeText()}</div>
-          <div class="age" style="font-size:12px;opacity:.85">🍼 เกิด ${fmtDate(p.birthDate)}${p.dueDate ? ` · ครบกำหนด ${fmtDate(p.dueDate)}` : ""}</div>` : ""}
+          ${isPreterm() ? `<div class="age" style="font-size:13.5px;opacity:.96">🌱 อายุพัฒนาการ ${correctedAgeText()}</div>
+          <div class="age" style="font-size:12px;opacity:.85">เกิด ${fmtDate(p.birthDate)}${p.dueDate ? ` · เริ่มนับพัฒนาการ ${fmtDate(p.dueDate)}` : ""}</div>` : ""}
         </div>
       </div>
     </div>
@@ -1059,7 +1059,7 @@ function viewDev() {
 
   return topbar() + `<div class="screen">
     <h2>🎯 พัฒนาการตามวัย</h2>
-    ${isPreterm() ? `<div class="alert"><span class="e">✨</span><div>น้องคลอดก่อนกำหนด — ประเมินพัฒนาการด้วย <b>อายุแก้ไข ${correctedAgeText()}</b> (ไม่ใช่อายุจริง) ซึ่งเหมาะสมกว่าจนถึงอายุประมาณ 2 ปี</div></div>` : ""}
+    ${isPreterm() ? `<div class="alert"><span class="e">🌱</span><div>น้องคลอดก่อนกำหนด — ประเมินพัฒนาการด้วย <b>อายุพัฒนาการ ${correctedAgeText()}</b> (เริ่มนับจากวันครบกำหนดคลอด ไม่ใช่วันเกิดจริง) ซึ่งเป็นวิธีที่ถูกต้องจนถึงอายุประมาณ 2 ปี · ทางการแพทย์เรียกว่า "อายุแก้ไข"</div></div>` : ""}
     ${dev.aiCard}
     ${dev.alert}
 
