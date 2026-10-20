@@ -247,7 +247,7 @@ function viewHome() {
       <button class="quick grow" onclick="sheetGrowth()"><span class="e">📏</span>ชั่ง/วัด</button>
       <button class="quick milk" onclick="sheetMemory()"><span class="e">📸</span>ความทรงจำ</button>
       <button class="quick diaper" onclick="go('teeth')"><span class="e">🦷</span>ฟันน้ำนม</button>
-      <button class="quick sleep" onclick="go('health')"><span class="e">🌡️</span>สุขภาพ</button>
+      <button class="quick sleep" onclick="go('vaccines')"><span class="e">💉</span>วัคซีน</button>
     </div>
 
     ${growthDashboard()}
@@ -423,15 +423,16 @@ function vaccineCard() {
 /* ---- การ์ดประกันบนแดชบอร์ด ---- */
 function insuranceCard() {
   const h = Store.data.healthInfo || {};
-  if (!h.insCompany && !h.insNo) return "";
+  const has = h.insCompany || h.insNo;
   const exp = h.insExpiry ? ` · หมดอายุ ${fmtDate(h.insExpiry)}` : "";
   return `<div class="section-title">🛡️ ประกัน</div>
     <div class="card" onclick="go('healthcard')" style="cursor:pointer">
       <div class="list-item" style="padding:0">
         <div class="bubble" style="background:#EAF6FF">🛡️</div>
-        <div class="body"><div class="t">${esc(h.insCompany || "ประกันสุขภาพ")}</div>
+        ${has ? `<div class="body"><div class="t">${esc(h.insCompany || "ประกันสุขภาพ")}</div>
           <div class="s">${h.insNo ? "กรมธรรม์ " + esc(h.insNo) : ""}${h.insPlan ? " · " + esc(h.insPlan) : ""}${exp}</div>
-          ${h.insHospital ? `<div class="s">🏥 ${esc(h.insHospital)}</div>` : ""}</div>
+          ${h.insHospital ? `<div class="s">🏥 ${esc(h.insHospital)}</div>` : ""}</div>`
+      : `<div class="body"><div class="t">เพิ่มข้อมูลประกัน</div><div class="s">บริษัท · กรมธรรม์ · รพ.คู่สัญญา (แตะเพื่อใส่)</div></div>`}
         <div class="time">›</div>
       </div>
     </div>`;

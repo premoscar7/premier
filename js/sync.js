@@ -23,7 +23,7 @@ function _syncMergeProfile(a, b) {
 function _syncMergeChild(a, b) {
   const out = { id: a.id || b.id };
   out.profile = _syncMergeProfile(a.profile, b.profile);
-  ["growth", "memories", "sizes", "appointments", "temps", "meds", "shopping", "letters", "quotes", "feeds", "sleeps", "diapers"]
+  ["growth", "memories", "sizes", "vaccines", "appointments", "temps", "meds", "shopping", "letters", "quotes", "feeds", "sleeps", "diapers"]
     .forEach(k => { out[k] = _syncUnionById(a[k], b[k]); });
   out.teeth = Object.assign({}, b.teeth || {}, a.teeth || {});
   out.milestones = Object.assign({}, b.milestones || {}, a.milestones || {});
@@ -46,9 +46,27 @@ function mergeSnapshots(local, remote) {
   return { v: 2, children, _seeded: !!(local._seeded || remote._seeded) };
 }
 
+/* ---- canonical form: เรียง key + เรียง array ตาม id ให้เหมือนกันทุกเครื่อง (กันลูปซิงค์) ---- */
+function _syncSortDeep(x) {
+  if (Array.isArray(x)) {
+    const arr = x.map(_syncSortDeep);
+    if (arr.length && arr.every(i => i && typeof i === "object" && "id" in i)) {
+      arr.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+    }
+    return arr;
+  }
+  if (x && typeof x === "object") {
+    const out = {};
+    Object.keys(x).sort().forEach(k => { out[k] = _syncSortDeep(x[k]); });
+    return out;
+  }
+  return x;
+}
+function _syncCanon(snap) { try { return JSON.stringify(_syncSortDeep(snap)); } catch (e) { return ""; } }
+
 const Sync = {
   url: "", code: "", ready: false, applying: false, status: "off",
-  _timer: null, _poll: null, _lastJSON: "",
+  _timer: null, _poll: null, _lastCanon: "",
 
   cfg() {
     const c = window.BK_CONFIG || {};
@@ -106,7 +124,7 @@ const Sync = {
     this.applying = true;
     Store.applySnapshot(merged);
     this.applying = false;
-    this._lastJSON = remote ? JSON.stringify(remote) : "";
+    this._lastCanon = remote ? _syncCanon(remote) : "";
 
     this.ready = true;
     this.status = "on";
@@ -114,19 +132,32 @@ const Sync = {
     localStorage.setItem("bk.syncOn", "1");
     await this._push(true); // ส่งข้อมูลที่รวมแล้วขึ้นคลาวด์
     this._startPoll();
-    if (typeof render === "function") render();
+    this._safeRender();
   },
+
+  // ไม่ render ตอนกำลังพิมพ์/เปิดฟอร์มอยู่ (กันข้อมูลที่พิมพ์หาย + กันกระพริบ)
+  _formActive() {
+    try {
+      const sheet = document.getElementById("sheet-root");
+      if (sheet && sheet.innerHTML.trim() !== "") return true;
+      const el = document.activeElement;
+      if (el && ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) return true;
+    } catch (e) { }
+    return false;
+  },
+  _safeRender() { if (typeof render === "function" && !this._formActive()) render(); },
 
   _startPoll() {
     clearInterval(this._poll);
     this._poll = setInterval(async () => {
-      if (!this.ready || this.applying) return;
+      if (!this.ready || this.applying || this._formActive()) return; // หยุด poll ตอนกำลังพิมพ์
       try {
         const j = await this._get();
         const remote = j && j.data;
         if (remote) {
-          const rj = JSON.stringify(remote);
-          if (rj !== JSON.stringify(Store.snapshot()) && rj !== this._lastJSON) this.applyRemote(remote);
+          const rc = _syncCanon(remote);
+          if (rc !== _syncCanon(Store.snapshot()) && rc !== this._lastCanon) this.applyRemote(remote);
+          else this._lastCanon = rc;
         }
         if (this.status === "error") { this.status = "on"; if (this._onSync()) render(); }
       } catch (e) { this.status = "error"; if (this._onSync()) render(); }
@@ -134,39 +165,43 @@ const Sync = {
   },
 
   applyRemote(data) {
-    this._lastJSON = JSON.stringify(data);
+    this._lastCanon = _syncCanon(data);
+    const localCanon = _syncCanon(Store.snapshot());
     const merged = mergeSnapshots(Store.snapshot(), data);
-    const mergedStr = JSON.stringify(merged);
-    if (mergedStr === JSON.stringify(Store.snapshot())) return; // ไม่มีอะไรใหม่
+    const mergedCanon = _syncCanon(merged);
+    if (mergedCanon === localCanon) {
+      // เครื่องนี้มีครบแล้ว — ถ้าคลาวด์ยังไม่ครบ ค่อยส่งขึ้นให้ตามทัน
+      if (mergedCanon !== this._lastCanon) this.schedulePush();
+      return;
+    }
     this.applying = true;
     Store.applySnapshot(merged);
     this.applying = false;
-    if (typeof render === "function") render();
-    // ถ้าผลรวมมีมากกว่าที่คลาวด์มี → ส่งขึ้นให้คลาวด์ตามทัน
-    if (mergedStr !== this._lastJSON) this.schedulePush();
+    this._safeRender();
+    if (mergedCanon !== this._lastCanon) this.schedulePush();
   },
 
   schedulePush() {
     if (!this.ready || this.applying) return;
     this.status = "syncing";
     clearTimeout(this._timer);
-    this._timer = setTimeout(() => this._push(), 600);
-    if (this._onSync()) render();
+    this._timer = setTimeout(() => this._push(), 700);
+    if (this._onSync() && !this._formActive()) render();
   },
 
   async _push(silent) {
     if (!this.url || !this.code) return;
-    const payload = JSON.stringify(Store.snapshot());
-    if (payload === this._lastJSON) { this.status = "on"; return; }
+    const canon = _syncCanon(Store.snapshot());
+    if (canon === this._lastCanon) { this.status = "on"; return; }
     try {
       await this._post();
-      this._lastJSON = payload;
+      this._lastCanon = canon;
       this.status = "on";
     } catch (e) {
       this.status = "error";
       if (!silent) console.warn("sync push failed", e);
     }
-    if (this._onSync()) render();
+    if (this._onSync() && !this._formActive()) render();
   },
 
   disconnect() {
