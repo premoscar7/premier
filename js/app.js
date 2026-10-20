@@ -1637,8 +1637,19 @@ function viewSync() {
   };
   const cfg = window.BK_CONFIG || {};
   const autoShare = !!((cfg.sheetUrl || "").trim() && (cfg.familyCode || "").trim());
+  const override = (localStorage.getItem("bk.familyCodeOverride") || "").trim();
+  const guestLink = (typeof location !== "undefined" ? location.origin : "") + "/?guest";
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>🔄 ซิงค์ข้อมูลพ่อแม่</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+
+    ${override ? `<div class="alert" style="background:#fff3cd;border-color:#ffe08a;color:#6b5600"><span class="e">🧪</span><div><b>โหมดทดลอง (ข้อมูลแยก)</b><br>เครื่องนี้ใช้ข้อมูลชุดของตัวเอง (รหัส <b>${esc(override)}</b>) — ไม่ปนและไม่เห็นข้อมูลหลักของครอบครัว<br><button class="btn ghost sm" style="margin-top:8px" onclick="exitTrialMode()">↩️ กลับไปข้อมูลหลัก</button></div></div>` : ""}
+
+    ${!override ? `<div class="card">
+      <h3>👥 ให้คนอื่นลองใช้ (ข้อมูลแยก)</h3>
+      <p class="small muted">ส่งลิงก์นี้ให้เพื่อน เปิดแล้วจะได้<b>พื้นที่เปล่าของตัวเอง</b> — ไม่เห็นข้อมูลลูกเรา และไม่ปนกัน</p>
+      <label class="field"><span>ลิงก์สำหรับเพื่อน</span><input type="text" id="guest-link" readonly value="${esc(guestLink)}" onclick="this.select()"></label>
+      <button class="btn teal block" onclick="copyGuestLink()">📋 คัดลอกลิงก์ให้เพื่อน</button>
+    </div>` : ""}
 
     <div class="ai-card" style="background:linear-gradient(135deg,#2BB3AA,#4ECDC4)">
       <h3>☁️ ข้อมูลตรงกันทุกเครื่อง</h3>
@@ -1680,10 +1691,29 @@ function saveSheetUrl() {
 }
 function connectSync() {
   Sync.saveUrl($("#sy-url").value);
-  Sync.connect($("#sy-code").value);
+  const code = ($("#sy-code").value || "").trim();
+  // ถ้าอยู่โหมดทดลอง (แยกข้อมูล) → อัปเดตรหัสแยกให้คงอยู่ตอนเปิดใหม่ด้วย
+  if ((localStorage.getItem("bk.familyCodeOverride") || "").trim() && code) {
+    try { localStorage.setItem("bk.familyCodeOverride", code); } catch (e) { }
+  }
+  Sync.connect(code);
 }
 function disconnectSync() {
   if (confirm("หยุดซิงค์กับคลาวด์? (ข้อมูลในเครื่องนี้ยังอยู่ครบ)")) Sync.disconnect();
+}
+function copyGuestLink() {
+  const link = (typeof location !== "undefined" ? location.origin : "") + "/?guest";
+  const el = $("#guest-link"); if (el) el.select();
+  (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+    .then(() => alert("คัดลอกลิงก์แล้ว! ส่งให้เพื่อนเปิดได้เลย 👍\n\n" + link))
+    .catch(() => { try { document.execCommand("copy"); alert("คัดลอกลิงก์แล้ว 👍\n\n" + link); } catch (e) { alert("ลิงก์ให้เพื่อน:\n" + link); } });
+}
+function exitTrialMode() {
+  if (!confirm("กลับไปใช้ข้อมูลหลักของครอบครัว?\n(ข้อมูลชุดทดลองในเครื่องนี้จะถูกล้างออกจากเครื่อง)")) return;
+  try { localStorage.removeItem("bk.familyCodeOverride"); } catch (e) { }
+  try { Store.reset(); } catch (e) { }
+  const def = ((window.BK_CONFIG || {}).familyCode || "").trim();
+  if (def && typeof Sync !== "undefined") Sync.connect(def); else render();
 }
 function randFamilyCode() {
   const name = (Store.data.profile.name || "baby").replace(/\s+/g, "").toLowerCase().slice(0, 8) || "baby";
@@ -1909,41 +1939,24 @@ function viewDiary() {
   if (mems.length === 0) {
     body = `<div class="card"><div class="empty"><span class="e">📸</span>ยังไม่มีความทรงจำ<br>แตะ ＋ เก็บโมเมนต์พิเศษครั้งแรกของลูกกันเถอะ 💛</div></div>`;
   } else {
-    const hasFolder = driveFoldersList().length > 0;
     body = mems.map(m => {
       const age = ageTextAtDate(m.date);
       const pic = m.photoUrl || m.photo;
-      const imgTag = pic ? `<img class="mem-img" src="${pic}" alt="" loading="lazy" onerror="this.style.opacity=0.35">` : "";
-      const photoBlock = pic ? (m.photoView ? `<a href="${m.photoView}" target="_blank" rel="noopener">${imgTag}</a>` : imgTag) : "";
-      let syncNote = "";
-      if (m.photo && !m.photoUrl) {
-        if (_memBlocked || _memFailed[m.id]) {
-          syncNote = `<div class="small" style="margin-top:6px;color:#e08">⚠️ อัปรูปขึ้น Drive ไม่ได้ — เปิดสิทธิ์ Drive ใน Apps Script ก่อน</div>`;
-        } else if (hasFolder) {
-          syncNote = `<div class="small muted" style="margin-top:6px">⬆️ ${_memUploading[m.id] ? "กำลังซิงค์รูปขึ้น Drive…" : "รอซิงค์รูปขึ้น Drive…"}</div>`;
-        } else {
-          syncNote = `<div class="small muted" style="margin-top:6px">📁 เพิ่มโฟลเดอร์ Drive เพื่อให้รูปนี้เห็นทุกเครื่อง</div>`;
-        }
-      }
       return `<div class="card mem-card">
-        ${photoBlock}
+        ${pic ? `<img class="mem-img" src="${pic}" alt="" loading="lazy" onerror="this.style.opacity=0.35">` : ""}
         <div class="flex between" style="align-items:flex-start">
           <h3 style="flex:1">${esc(m.title)}</h3>
           <button class="del-btn" onclick="delItem('memories','${m.id}')">🗑️</button>
         </div>
         <div class="small muted" style="margin:2px 0 6px">📅 ${fmtDateFull(m.date + "T00:00")}${age ? ` · 👶 อายุ ${age}` : ""}</div>
         ${m.note ? `<div style="white-space:pre-wrap">${esc(m.note)}</div>` : ""}
-        ${syncNote}
       </div>`;
     }).join("");
   }
 
-  setTimeout(migrateMemPhotos, 400); // ค่อยๆ อัปรูปเก่าขึ้น Drive ให้เห็นทุกเครื่อง
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>📸 ไดอารี่ความทรงจำ</h2>${mems.length ? `<span class="badge">${mems.length} โมเมนต์</span>` : ""}</div>
     <div class="small muted" style="margin:2px 0 10px">เก็บภาพและเรื่องราวครั้งแรกของลูกไว้ดูในวันข้างหน้า 💛</div>
-    ${driveSection()}
-    <div class="section-title">✍️ โมเมนต์ที่บันทึกเอง</div>
     ${body}
   </div>`;
 }
@@ -2158,9 +2171,7 @@ function migrateMemPhotos() {
 let memPhoto = "";
 function sheetMemory() {
   memPhoto = "";
-  const hasFolder = driveFoldersList().length > 0;
   openSheet("📸 เพิ่มความทรงจำ", `
-    <div class="small muted" style="margin:-4px 0 10px;text-align:center">${hasFolder ? "📤 รูปจะอัปขึ้น Google Drive อัตโนมัติ เพื่อให้เห็นทุกเครื่อง" : "💡 เพิ่มโฟลเดอร์ Drive ก่อน รูปถึงจะเห็นทุกเครื่อง"}</div>
     <div class="center" style="margin-bottom:14px">
       <label style="cursor:pointer">
         <div id="mem-photo-prev" class="mem-prev">📷<div class="small muted" style="margin-top:4px">แตะเพิ่มรูป</div></div>
@@ -2207,18 +2218,15 @@ function pickMemPhoto(ev) {
 function saveMemory() {
   const title = $("#mem-title").value.trim();
   if (!title) { alert("กรุณาใส่หัวข้อความทรงจำ"); return; }
-  let item;
   try {
-    item = Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
+    Store.add("memories", { title, date: $("#mem-date").value || dayKey(new Date()), note: $("#mem-note").value.trim(), photo: memPhoto });
   } catch (e) {
     alert("พื้นที่จัดเก็บเต็ม ลองลบรูปเก่าหรือใช้รูปเล็กลง");
     return;
   }
-  const pendingPhoto = memPhoto;
   memPhoto = "";
   closeSheet();
   render();
-  if (pendingPhoto && item) uploadMemPhotoToDrive(item.id, pendingPhoto); // อัปขึ้น Drive → เห็นทุกเครื่อง
 }
 
 /* ==================================================================

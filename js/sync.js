@@ -91,6 +91,21 @@ function _syncLite(snap) {
   return s;
 }
 
+/* ---- เครื่องนี้ยังว่างอยู่ไหม (ยังไม่ได้กรอกข้อมูลลูก) ---- */
+function _syncIsEmpty(snap) {
+  try {
+    var kids = (snap && snap.children) || [];
+    return !kids.some(function (c) {
+      var p = c.profile || {};
+      if (p.name || p.birthDate || p.photo) return true;
+      var lists = ["growth", "memories", "vaccines", "appointments", "temps", "meds", "letters", "quotes", "sizes"];
+      if (lists.some(function (k) { return (c[k] || []).length; })) return true;
+      if (Object.keys(c.milestones || {}).length || Object.keys(c.teeth || {}).length) return true;
+      return false;
+    });
+  } catch (e) { return false; }
+}
+
 const Sync = {
   url: "", code: "", ready: false, applying: false, status: "off",
   _timer: null, _poll: null, _lastCanon: "",
@@ -104,10 +119,28 @@ const Sync = {
 
   init() {
     const c = window.BK_CONFIG || {};
-    // ถ้าฝังค่าไว้ในโค้ด (sheetUrl + familyCode) → แชร์อัตโนมัติให้ทุกคนที่เปิดลิงก์
+    this.url = this.cfg().url;
+    const override = (localStorage.getItem("bk.familyCodeOverride") || "").trim();
+    const isGuest = /(?:[?&#])guest\b/i.test(location.search + location.hash);
+
+    // โหมดแยก (เพื่อนลองใช้) — ใช้รหัสของตัวเอง ไม่ยุ่ง/ไม่เห็นข้อมูลหลัก
+    if (override) {
+      this.code = override;
+      if (this.url) this.connect(this.code, { silent: true });
+      return;
+    }
+    // เปิดลิงก์แบบ ?guest ครั้งแรก → สร้างพื้นที่ใหม่ว่างๆ แยกต่างหาก (ไม่ดึงข้อมูลเจ้าของ)
+    if (isGuest) {
+      const code = "guest-" + Math.random().toString(36).slice(2, 8);
+      try { localStorage.setItem("bk.familyCodeOverride", code); } catch (e) { }
+      try { Store.reset(); } catch (e) { }   // เริ่มจากข้อมูลว่าง — ไม่เห็นของลูกเรา
+      this.code = code;
+      if (this.url) this.connect(this.code, { silent: true });
+      return;
+    }
+    // ปกติ: แชร์อัตโนมัติด้วยรหัสหลัก (ครอบครัวเจ้าของ)
     const autoShare = !!((c.sheetUrl || "").trim() && (c.familyCode || "").trim());
     this.code = ((c.familyCode || "").trim()) || localStorage.getItem("bk.familyCode") || "";
-    this.url = this.cfg().url;
     const on = localStorage.getItem("bk.syncOn") === "1";
     if (this.url && this.code && (autoShare || on)) {
       this.connect(this.code, { silent: true });
@@ -146,18 +179,22 @@ const Sync = {
       return;
     }
 
-    // รวมข้อมูลเครื่องนี้กับคลาวด์ (ไม่ทับกัน — กันข้อมูลหาย) แล้วอัปผลลัพธ์ขึ้น
-    const merged = mergeSnapshots(Store.snapshot(), remote);
+    // ถ้าเครื่องนี้ยังว่าง (เพิ่งเปิด/รีเซ็ต) แต่คลาวด์มีข้อมูล → ดึงลงมาเฉยๆ ไม่ push
+    // (กันเครื่องใหม่เขียนข้อมูลเปล่าๆ เพิ่มลงในชุดที่มีอยู่ของคนอื่น)
+    const localSnap = Store.snapshot();
+    const localEmpty = _syncIsEmpty(localSnap);
+    const remoteHas = remote && !_syncIsEmpty(remote);
+    const merged = (localEmpty && remoteHas) ? remote : mergeSnapshots(localSnap, remote);
     this.applying = true;
     Store.applySnapshot(merged);
     this.applying = false;
-    this._lastCanon = remote ? _syncCanon(remote) : "";
+    this._lastCanon = _syncCanon(_syncLite(merged));
 
     this.ready = true;
     this.status = "on";
     localStorage.setItem("bk.familyCode", code);
     localStorage.setItem("bk.syncOn", "1");
-    await this._push(true); // ส่งข้อมูลที่รวมแล้วขึ้นคลาวด์
+    if (!(localEmpty && remoteHas)) await this._push(true); // ส่งขึ้นคลาวด์เฉพาะตอนเรามีข้อมูลจะเพิ่ม
     this._startPoll();
     this._safeRender();
   },
