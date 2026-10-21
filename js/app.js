@@ -161,7 +161,7 @@ const TABS = [
 function go(route) { App.route = route; render(); window.scrollTo(0, 0); }
 
 function renderNav() {
-  const activeTab = ["shopping", "appt", "profile", "settings", "health", "teeth", "healthcard", "sync", "timeline", "sizes", "letters", "quotes", "children", "vaccines"].includes(App.route) ? "more" : App.route;
+  const activeTab = ["shopping", "appt", "profile", "settings", "health", "teeth", "healthcard", "sync", "timeline", "sizes", "letters", "quotes", "foods", "children", "vaccines"].includes(App.route) ? "more" : App.route;
   document.getElementById("nav").innerHTML = TABS.map(t =>
     `<button class="${t.id === activeTab ? "active" : ""}" onclick="go('${t.id}')">
        <span class="ne">${t.icon}</span><span>${t.label}</span>
@@ -247,6 +247,7 @@ function render() {
   else if (r === "sizes") html = viewSizes();
   else if (r === "letters") html = viewLetters();
   else if (r === "quotes") html = viewQuotes();
+  else if (r === "foods") html = viewFoods();
   else if (r === "children") html = viewChildren();
   else if (r === "vaccines") html = viewVaccines();
   appEl().innerHTML = html;
@@ -1146,6 +1147,82 @@ function saveQuote() {
 }
 
 /* ==================================================================
+   FOODS (อาหารที่ชอบ/ไม่ชอบ)
+   ================================================================== */
+function viewFoods() {
+  if (!Store.data.profile.birthDate) return topbar() + needProfile();
+  const list = [...(Store.data.foods || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const rmap = {}; FOOD_REACTIONS.forEach(r => rmap[r.key] = r);
+  const count = (k) => list.filter(f => f.reaction === k).length;
+
+  let body;
+  if (!list.length) {
+    body = `<div class="card"><div class="empty"><span class="e">🍽️</span>ยังไม่มีบันทึกอาหาร<br>เริ่มป้อนอาหารเสริม (6 เดือน+) แล้วจดว่าชอบ/ไม่ชอบอะไรกันเถอะ 😋</div></div>`;
+  } else {
+    body = list.map(f => {
+      const r = rmap[f.reaction] || rmap.ok;
+      return `<div class="list-item">
+        <div class="bubble" style="background:${r.color}22;font-size:22px">${r.emoji}</div>
+        <div class="body"><div class="t">${esc(f.name)}</div>
+          <div class="s"><span style="color:${r.color};font-weight:600">${r.label}</span>${f.date ? " · " + fmtDate(f.date) : ""}${f.note ? " · " + esc(f.note) : ""}</div></div>
+        <button class="del-btn" onclick="sheetFood('${f.id}')" title="แก้ไข">✏️</button>
+        <button class="del-btn" onclick="delItem('foods','${f.id}')" title="ลบ">🗑️</button>
+      </div>`;
+    }).join("");
+  }
+
+  const summary = list.length ? `<div class="card" style="display:flex;justify-content:space-around;text-align:center">
+    ${FOOD_REACTIONS.map(r => `<div><div style="font-size:24px">${r.emoji}</div><div style="font-weight:700;color:${r.color}">${count(r.key)}</div><div class="small muted">${r.label}</div></div>`).join("")}
+  </div>` : "";
+
+  return topbar() + `<div class="screen">
+    <div class="flex between"><h2>🍽️ อาหารที่ชอบ/ไม่ชอบ</h2><button class="btn ghost sm" onclick="go('more')">‹ กลับ</button></div>
+    <div class="small muted" style="margin:2px 0 10px">จดว่า${esc(Store.data.profile.name || "ลูก")}ชอบ/ไม่ชอบ/แพ้อะไร — ช่วยวางแผนมื้ออาหาร 🍚</div>
+    ${summary}
+    <button class="btn block teal" onclick="sheetFood()">➕ เพิ่มอาหาร</button>
+    <div class="section-title">รายการอาหาร (${list.length})</div>
+    ${body}
+  </div>`;
+}
+let _editFoodId = null;
+let _foodReaction = "like";
+function sheetFood(editId) {
+  _editFoodId = editId || null;
+  const f = editId ? (Store.data.foods || []).find(x => x.id === editId) : null;
+  _foodReaction = f ? (f.reaction || "like") : "like";
+  openSheet(f ? "✏️ แก้ไขอาหาร" : "🍽️ เพิ่มอาหาร", `
+    <label class="field"><span>ชื่ออาหาร (เลือกด่วน)</span>
+      <div class="chips" style="max-height:120px;overflow-y:auto">
+        ${FOOD_IDEAS.map(n => `<button class="chip" type="button" onclick="selFoodName(this,'${esc(n)}')">${esc(n)}</button>`).join("")}
+      </div>
+    </label>
+    <label class="field"><span>ชื่ออาหาร</span><input type="text" id="fd-name" value="${f ? esc(f.name) : ""}" placeholder="เช่น ฟักทองบด"></label>
+    <label class="field"><span>ปฏิกิริยา</span>
+      <div class="chips" id="fd-react">
+        ${FOOD_REACTIONS.map(r => `<button class="chip ${_foodReaction === r.key ? "active" : ""}" type="button" onclick="selFoodReaction(this,'${r.key}')">${r.emoji} ${r.label}</button>`).join("")}
+      </div>
+    </label>
+    <label class="field"><span>วันที่ (ไม่บังคับ)</span><input type="date" id="fd-date" value="${f ? esc(f.date || "") : dayKey(new Date())}" max="${dayKey(new Date())}"></label>
+    <label class="field"><span>หมายเหตุ (ไม่บังคับ)</span><input type="text" id="fd-note" value="${f ? esc(f.note || "") : ""}" placeholder="เช่น กินเยอะมาก / คายทิ้ง"></label>
+    <button class="btn block teal" onclick="saveFood()">💾 ${f ? "บันทึกการแก้ไข" : "บันทึก"}</button>
+  `);
+}
+function selFoodName(btn, name) { const el = $("#fd-name"); if (el) el.value = name; }
+function selFoodReaction(btn, key) {
+  _foodReaction = key;
+  [...btn.parentNode.children].forEach(c => c.classList.remove("active"));
+  btn.classList.add("active");
+}
+function saveFood() {
+  const name = $("#fd-name").value.trim();
+  if (!name) { alert("กรุณาใส่ชื่ออาหาร"); return; }
+  const data = { name, reaction: _foodReaction, date: $("#fd-date").value || "", note: $("#fd-note").value.trim() };
+  if (_editFoodId) { Store.update("foods", _editFoodId, data); _editFoodId = null; }
+  else Store.add("foods", data);
+  closeSheet(); render();
+}
+
+/* ==================================================================
    CHILDREN (ลูกหลายคน)
    ================================================================== */
 function pickChild(id) { Store.switchChild(id); App.msCheckpoint = null; render(); }
@@ -1430,6 +1507,7 @@ function viewMore() {
     ["timeline", "📅", "ไทม์ไลน์การเติบโต", "ดูเรื่องราวการเติบโตทั้งหมด"],
     ["letters", "💌", "จดหมายถึงลูก", (Store.data.letters || []).length ? `${Store.data.letters.length} ฉบับ` : "เขียนถึงลูกไว้ให้อ่านตอนโต"],
     ["quotes", "💬", "คำพูดน่ารักของลูก", (Store.data.quotes || []).length ? `${Store.data.quotes.length} ประโยค` : "เก็บคำพูด/เรื่องขำไว้"],
+    ["foods", "🍽️", "อาหารที่ชอบ/ไม่ชอบ", (Store.data.foods || []).length ? `${Store.data.foods.length} รายการ` : "จดอาหารที่ชอบ/ไม่ชอบ/แพ้ (6 ด.+)"],
     ["teeth", "🦷", "ผังฟันน้ำนม", teethN ? `ขึ้นแล้ว ${teethN}/20 ซี่` : "บันทึกฟันที่ขึ้นแต่ละซี่"],
     ["sizes", "👕", "ไซส์เสื้อผ้า-รองเท้า", latestSize ? `ล่าสุด ${[latestSize.clothing && "เสื้อ " + latestSize.clothing, latestSize.shoe && "รองเท้า " + latestSize.shoe].filter(Boolean).join(" · ") || "บันทึกแล้ว"}` : "จดไซส์ปัจจุบันไว้ตอนซื้อของ"],
     ["healthcard", "🩺", "บัตรสุขภาพ & ประกัน", hasCard ? "ดู/แก้ไขข้อมูลสุขภาพ & ประกัน" : "กรุ๊ปเลือด แพ้ยา/อาหาร ประกัน เบอร์ฉุกเฉิน"],
@@ -1479,8 +1557,35 @@ function viewShopping() {
   return topbar() + `<div class="screen">
     <div class="flex between"><h2>🛒 ของต้องซื้อ</h2><span class="badge">ได้แล้ว ${boughtN}/${items.length}</span></div>
     <div class="progress mt" style="margin-bottom:6px"><span style="width:${items.length ? boughtN / items.length * 100 : 0}%"></span></div>
+    ${ageEssentialsCard()}
     ${body}
   </div>`;
+}
+/* ---- ของใช้แนะนำตามวัย (เด็กโต 6 เดือน+) ---- */
+function ageEssentialsCard() {
+  if (typeof AGE_ESSENTIALS === "undefined") return "";
+  const a = ageData(); const months = a ? a.months : 0;
+  const stages = AGE_ESSENTIALS.map((s, i) => ({ s, i })).filter(o => months + 3 >= o.s.minM); // ถึงแล้ว + ใกล้ถึง
+  if (!stages.length) return "";
+  const have = new Set(Store.data.shopping.map(s => s.name));
+  const block = stages.map(({ s, i }) => `<div class="section-title" style="margin-top:10px">${CATEGORY_EMOJI[s.cat] || "✨"} ${esc(s.stage)}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      ${s.items.map((it, j) => {
+    const added = have.has(it);
+    return `<button class="chip ${added ? "active" : ""}" type="button" ${added ? "disabled" : `onclick="addEssential(${i},${j})"`} style="white-space:normal;text-align:left;height:auto;padding:7px 11px">${added ? "✓ " : "➕ "}${esc(it)}</button>`;
+  }).join("")}
+    </div>`).join("");
+  return `<details class="card" style="border:1.5px dashed var(--teal,#2BB3AA)"><summary style="cursor:pointer;font-weight:700">✨ ของใช้แนะนำตามวัย (6 เดือนขึ้นไป)</summary>
+    <p class="small muted" style="margin:8px 0 2px">แตะเพื่อเพิ่มลงลิสต์ของต้องซื้อ 👇</p>
+    ${block}
+  </details>`;
+}
+function addEssential(si, j) {
+  const s = AGE_ESSENTIALS[si]; if (!s) return;
+  const name = s.items[j]; if (!name) return;
+  if (Store.data.shopping.some(x => x.name === name)) { render(); return; }
+  Store.add("shopping", { name, cat: s.cat, qty: 1, bought: false });
+  render();
 }
 function toggleShop(id, ev) {
   const it = Store.data.shopping.find(x => x.id === id);
@@ -2559,6 +2664,7 @@ function fabAction() {
   if (r === "sizes") return sheetSize();
   if (r === "letters") return sheetLetter();
   if (r === "quotes") return sheetQuote();
+  if (r === "foods") return sheetFood();
   if (r === "children") return promptAddChild();
   if (r === "health") {
     return openSheet("➕ บันทึกสุขภาพ", `

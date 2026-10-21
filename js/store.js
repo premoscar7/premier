@@ -20,6 +20,7 @@ const CHILD_FIELDS = {
   vaccines: [],       // {id, date, name, photo, note} — สมุดบันทึกวัคซีนที่ฉีดแล้ว
   letters: [],        // {id, date, title, body}
   quotes: [],         // {id, date, text, note}
+  foods: [],          // {id, name, reaction, date, note} — อาหารที่ชอบ/ไม่ชอบ
   feeds: [], sleeps: [], diapers: [],  // (เดิม — เก็บไว้เพื่อความเข้ากันได้)
   del: {},            // tombstone: { itemId: timestamp } — จำว่ารายการไหนถูกลบ (กันซิงค์ดึงกลับ)
 };
